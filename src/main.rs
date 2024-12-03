@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    println!("Main entry point, nothing here.");
 }
