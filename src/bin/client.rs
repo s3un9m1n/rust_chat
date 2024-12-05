@@ -28,9 +28,11 @@ async fn main() {
         let stdin = io::BufReader::new(io::stdin());
         let mut lines = stdin.lines();
 
-        while let Some(Ok(line)) = lines.next_line().await {
-            if tx.send(line).await.is_err() {
-                break; // 송신 채널이 닫힌 경우 루프 종료
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !line.trim().is_empty() {
+                if tx.send(line).await.is_err() {
+                    break; // 채널이 닫힌 경우 루프 종료
+                }
             }
         }
     });
