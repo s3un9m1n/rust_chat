@@ -38,6 +38,7 @@ async fn main() {
     });
 
     loop {
+        // 두 개 이상의 future 중 먼저 완료되는 future 값을 return 해줌
         tokio::select! {
             // 사용자 입력을 처리
             Some(message) = rx.recv() => {
