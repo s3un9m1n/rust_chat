@@ -61,10 +61,13 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                 let mut clients_lock = clients.write().await;
 
                 // 클라이언트 목록에서 현재 클라이언트의 `sender` 획득
-                // TODO: 현재 id에 해당하는 클라이언트 -> 전체 id 브로드캐스트
-                if let Some(client) = clients_lock.get_mut(&client_id) {
+                for (id, sender) in clients_lock.iter_mut() {
+                    if id == &client_id {
+                        continue;
+                    }
+
                     // 받은 메시지를 다시 클라이언트로 전송
-                    if let Err(e) = client.send(Message::Text(text)).await {
+                    if let Err(e) = sender.send(Message::Text(text.clone())).await {
                         eprintln!("Error sending message: {}", e);
                         break;
                     }
