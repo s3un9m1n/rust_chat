@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde_json::json;
 
 type ClientMap = Arc<RwLock<HashMap<String, futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>>;
 
@@ -55,7 +56,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     while let Some(message) = read.next().await {
         match message {
             Ok(Message::Text(text)) => {
-                println!("Received message: {}", text);
+                println!("Received message from client({}): {}", client_id, text);
 
                 // read 락 획득
                 let mut clients_lock = clients.write().await;
@@ -66,8 +67,13 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                         continue;
                     }
 
+                    let message = json!({
+                        "id": client_id,
+                        "text": text
+                    }).to_string();
+
                     // 받은 메시지를 다시 클라이언트로 전송
-                    if let Err(e) = sender.send(Message::Text(text.clone())).await {
+                    if let Err(e) = sender.send(Message::Text(message)).await {
                         eprintln!("Error sending message: {}", e);
                         break;
                     }

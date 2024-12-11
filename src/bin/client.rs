@@ -5,6 +5,7 @@ use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
+use serde_json::Value;
 
 #[tokio::main]
 async fn main() {
@@ -54,7 +55,19 @@ async fn main() {
             // 서버로부터 메시지 수신
             Some(Ok(msg)) = ws_stream.next() => {
                 match msg {
-                    Message::Text(text) => println!("Received message: {}", text),
+                    Message::Text(message) => {
+                        if let Ok(received) = serde_json::from_str::<Value>(&message) {
+                            if let (Some(id), Some(text)) = (received.get("id"), received.get("text")) {
+                                println!("Received from client({}): {}",
+                                    id.as_str().unwrap_or("unknown"),
+                                    text.as_str().unwrap_or(""));
+                            } else {
+                                println!("Invalid message format: {}", message);
+                            }
+                        } else {
+                            println!("Failed to parse message: {}", message);
+                        }
+                    }
                     Message::Close(_) => {
                         println!("Server closed the connection");
                         break;
