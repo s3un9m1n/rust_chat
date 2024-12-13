@@ -58,7 +58,7 @@ async fn main() {
                     Message::Text(message) => {
                         if let Ok(received) = serde_json::from_str::<Value>(&message) {
                             if let (Some(id), Some(text)) = (received.get("id"), received.get("text")) {
-                                println!("Received from client({}): {}",
+                                println!("Received message. (FROM){}, (MSG){}",
                                     id.as_str().unwrap_or("unknown"),
                                     text.as_str().unwrap_or(""));
                             } else {

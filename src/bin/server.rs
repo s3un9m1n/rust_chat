@@ -50,13 +50,13 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     {
         let mut clients_lock = clients.write().await;
         clients_lock.insert(client_id.clone(), write);
-        println!("Client {} joined", client_id);
+        println!("Client joined. (ID){}", client_id);
     }
 
     while let Some(message) = read.next().await {
         match message {
             Ok(Message::Text(text)) => {
-                println!("Received message from client({}): {}", client_id, text);
+                println!("Received message. (FROM){}, (MSG){}", client_id, text);
 
                 // read 락 획득
                 let mut clients_lock = clients.write().await;
@@ -74,7 +74,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
 
                     // 받은 메시지를 다시 클라이언트로 전송
                     if let Err(e) = sender.send(Message::Text(message)).await {
-                        eprintln!("Error sending message: {}", e);
+                        eprintln!("Error sending message. (FROM){}, (MSG){}", client_id, e);
                         break;
                     }
                 }
@@ -96,6 +96,6 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     {
         let mut clients_lock = clients.write().await;
         clients_lock.remove(&client_id);
-        println!("Client {} disconnected", client_id);
+        println!("Client disconnected. (ID){}", client_id);
     }
 }
