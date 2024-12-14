@@ -1,11 +1,11 @@
 use ctrlc;
 use futures_util::{SinkExt, StreamExt};
+use serde_json::Value;
 use std::process;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
-use serde_json::Value;
 
 #[tokio::main]
 async fn main() {

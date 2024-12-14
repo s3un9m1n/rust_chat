@@ -1,12 +1,22 @@
 use futures_util::{SinkExt, StreamExt};
+use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
-use std::collections::HashMap;
-use std::sync::Arc;
-use serde_json::json;
 
-type ClientMap = Arc<RwLock<HashMap<String, futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>>;
+type ClientMap = Arc<
+    RwLock<
+        HashMap<
+            String,
+            futures_util::stream::SplitSink<
+                tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+                Message,
+            >,
+        >,
+    >,
+>;
 
 #[tokio::main]
 async fn main() {
@@ -43,6 +53,31 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
 
     println!("New WebSocket connection");
 
+    // 사용자 접속 알림
+    {
+        // 접속 알림 메시지
+        let join_message = json!({
+            "type": "user_joined",
+            "id": client_id
+        })
+        .to_string();
+
+        // 락 획득
+        // FIXME: write lock 밖에 사용하지 않는 것 같음
+        let mut clients_lock = clients.write().await;
+
+        // 다른 클라이언트들에게 접속 알림 메시지 전송
+        for (id, sender) in clients_lock.iter_mut() {
+            if id == &client_id {
+                continue;
+            }
+
+            if let Err(e) = sender.send(Message::Text(join_message.clone())).await {
+                eprintln!("Error sending join notification. (TO){}, (ERR){:?}", id, e);
+            }
+        }
+    }
+
     // WebSocket 스트림 분리
     let (write, mut read) = ws_stream.split();
 
@@ -58,7 +93,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
             Ok(Message::Text(text)) => {
                 println!("Received message. (FROM){}, (MSG){}", client_id, text);
 
-                // read 락 획득
+                // 락 획득
                 let mut clients_lock = clients.write().await;
 
                 // 클라이언트 목록에서 현재 클라이언트의 `sender` 획득
@@ -68,9 +103,11 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                     }
 
                     let message = json!({
+                        "type": "chat",
                         "id": client_id,
                         "text": text
-                    }).to_string();
+                    })
+                    .to_string();
 
                     // 받은 메시지를 다시 클라이언트로 전송
                     if let Err(e) = sender.send(Message::Text(message)).await {
@@ -91,11 +128,30 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
         }
     }
 
-
     // `write` 스트림을 클라이언트 목록에 삭제
     {
         let mut clients_lock = clients.write().await;
         clients_lock.remove(&client_id);
         println!("Client disconnected. (ID){}", client_id);
+    }
+
+    // 사용저 접속 종료 알림
+    {
+        // 접속 종료 알림 메시지
+        let leave_message = json!({
+            "type": "user_left",
+            "id": client_id
+        })
+        .to_string();
+
+        // 락 획득
+        let mut clients_lock = clients.write().await;
+
+        // 다른 클라이언트들에게 접속 종료 알림 메시지 전송
+        for (id, sender) in clients_lock.iter_mut() {
+            if let Err(e) = sender.send(Message::Text(leave_message.clone())).await {
+                eprintln!("Error sending leave notification. (TO){}, (ERR){:?}", id, e);
+            }
+        }
     }
 }
