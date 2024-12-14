@@ -57,13 +57,39 @@ async fn main() {
                 match msg {
                     Message::Text(message) => {
                         if let Ok(received) = serde_json::from_str::<Value>(&message) {
-                            if let (Some(id), Some(text)) = (received.get("id"), received.get("text")) {
-                                println!("Received message. (FROM){}, (MSG){}",
-                                    id.as_str().unwrap_or("unknown"),
-                                    text.as_str().unwrap_or(""));
+                            if let Some(message_type) = received.get("type") {
+                                match message_type.as_str().unwrap_or_default() {
+                                    "user_joined" => {
+                                        if let Some(id) = received.get("id") {
+                                            println!("User join! (ID){}", id);
+                                        } else {
+                                            println!("Invalid message format: {}", message);
+                                        }
+                                    }
+                                    "user_left" => {
+                                        if let Some(id) = received.get("id") {
+                                            println!("User left! (ID){}", id);
+                                        } else {
+                                            println!("Invalid message format: {}", message);
+                                        }
+                                    }
+                                    "chat" => {
+                                        if let (Some(id), Some(text)) = (received.get("id"), received.get("text")) {
+                                            println!("Received message. (FROM){}, (MSG){}",
+                                                id.as_str().unwrap_or("unknown"),
+                                                text.as_str().unwrap_or(""));
+                                        } else {
+                                            println!("Invalid message format: {}", message);
+                                        }
+                                    }
+                                    _ => {
+                                        println!("Unknown message type: {}", message);
+                                    }
+                                }
                             } else {
                                 println!("Invalid message format: {}", message);
                             }
+
                         } else {
                             println!("Failed to parse message: {}", message);
                         }
