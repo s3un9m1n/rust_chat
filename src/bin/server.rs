@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, tungstenite::Error};
 
 type ClientMap = Arc<
     RwLock<
@@ -119,6 +119,19 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
             Ok(Message::Binary(_)) => {
                 // 바이너리 메시지는 처리하지 않음
                 println!("Received binary message");
+            }
+            Err(Error::Protocol(protocol_error)) => {
+                if protocol_error.to_string().contains("Connection reset without closing handshake") {
+                    // 강제 종료 감지
+                    println!(
+                        "Client forcibly disconnected without closing handshake. (ID){}",
+                        client_id
+                    );
+                } else {
+                    // 다른 프로토콜 에러 처리
+                    eprintln!("Protocol error: {} (ID){})", protocol_error, client_id);
+                }
+                break;
             }
             Err(e) => {
                 eprintln!("Error reading message: {}", e);
