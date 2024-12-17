@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -91,28 +91,44 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     while let Some(message) = read.next().await {
         match message {
             Ok(Message::Text(text)) => {
-                println!("Received message. (FROM){}, (MSG){}", client_id, text);
+                if let Ok(json_message) = serde_json::from_str::<Value>(&text) {
+                    match json_message.get("type").and_then(|t| t.as_str()) {
+                        Some("chat") => {
+                            if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
+                                println!("Received message. (FROM){}, (MSG){}", client_id, text);
 
-                // 락 획득
-                let mut clients_lock = clients.write().await;
+                                // 락 획득
+                                let mut clients_lock = clients.write().await;
 
-                // 클라이언트 목록에서 현재 클라이언트의 `sender` 획득
-                for (id, sender) in clients_lock.iter_mut() {
-                    if id == &client_id {
-                        continue;
-                    }
+                                // 클라이언트 목록에서 현재 클라이언트의 `sender` 획득
+                                for (id, sender) in clients_lock.iter_mut() {
+                                    if id == &client_id {
+                                        continue;
+                                    }
 
-                    let message = json!({
-                        "type": "chat",
-                        "id": client_id,
-                        "text": text
-                    })
-                    .to_string();
+                                    let message = json!({
+                                        "type": "chat",
+                                        "id": client_id,
+                                        "text": text
+                                    })
+                                    .to_string();
 
-                    // 받은 메시지를 다시 클라이언트로 전송
-                    if let Err(e) = sender.send(Message::Text(message)).await {
-                        eprintln!("Error sending message. (FROM){}, (MSG){}", client_id, e);
-                        break;
+                                    // 받은 메시지를 다시 클라이언트로 전송
+                                    if let Err(e) = sender.send(Message::Text(message)).await {
+                                        eprintln!(
+                                            "Error sending message. (FROM){}, (MSG){}",
+                                            client_id, e
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Some("user_exit") => {
+                            println!("Exit client. (FROM){}", client_id);
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -121,7 +137,10 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                 println!("Received binary message");
             }
             Err(Error::Protocol(protocol_error)) => {
-                if protocol_error.to_string().contains("Connection reset without closing handshake") {
+                if protocol_error
+                    .to_string()
+                    .contains("Connection reset without closing handshake")
+                {
                     // 강제 종료 감지
                     println!(
                         "Client forcibly disconnected without closing handshake. (ID){}",

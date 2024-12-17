@@ -1,6 +1,6 @@
 use ctrlc;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::process;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
@@ -44,11 +44,35 @@ async fn main() {
             // 사용자 입력을 처리
             Some(message) = rx.recv() => {
                 if !message.trim().is_empty() {
-                    ws_stream
-                        .send(Message::Text(message.clone()))
+                    // 종료 요청
+                    if message == "exit" {
+                        // TODO: 정상 종료 메시지 전송
+                        let exit_message = json!({
+                            "type": "user_exit",
+                        })
+                        .to_string();
+
+                        ws_stream
+                        .send(Message::Text(exit_message))
                         .await
-                        .expect("Failed to send message");
-                    println!("Sent message: {}", message);
+                        .expect("Failed to send exit message");
+
+                        break;
+                    }
+                    // 일반 데이터 전송
+                    else {
+                        let chat_message = json!({
+                            "type": "chat",
+                            "text": message
+                        })
+                        .to_string();
+
+                        ws_stream
+                            .send(Message::Text(chat_message.clone()))
+                            .await
+                            .expect("Failed to send message");
+                        println!("Sent message: {}", message);
+                    }
                 }
             }
 
