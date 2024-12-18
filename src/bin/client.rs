@@ -75,56 +75,74 @@ async fn main() {
                     }
                 }
             }
-
             // 서버로부터 메시지 수신
-            Some(Ok(message_received)) = ws_stream.next() => {
+            Some(message_received) = ws_stream.next() => {
                 match message_received {
-                    Message::Text(message_json) => {
-                        if let Ok(received) = serde_json::from_str::<Value>(&message_json) {
-                            if let Some(message_type) = received.get("type") {
-                                match message_type.as_str().unwrap_or_default() {
-                                    "user_joined" => {
-                                        if let Some(id) = received.get("id") {
-                                            println!("User join! (ID){}", id);
-                                        } else {
-                                            println!("Invalid message format: {}", message_json);
+                    Ok(message_ok) => match message_ok {
+                        Message::Text(message_json) => {
+                            if let Ok(message) = serde_json::from_str::<Value>(&message_json) {
+                                if let Some(message_type) = message.get("type") {
+                                    match message_type.as_str().unwrap_or_default() {
+                                        "user_joined" => {
+                                            if let Some(id) = message.get("id") {
+                                                println!("User join! (ID){}", id);
+                                            } else {
+                                                println!("Invalid message format: {}", message_json);
+                                            }
+                                        }
+                                        "user_left" => {
+                                            if let Some(id) = message.get("id") {
+                                                println!("User left! (ID){}", id);
+                                            } else {
+                                                println!("Invalid message format: {}", message_json);
+                                            }
+                                        }
+                                        "chat" => {
+                                            if let (Some(id), Some(text)) = (message.get("id"), message.get("text")) {
+                                                println!("Received message. (FROM){}, (MSG){}",
+                                                    id.as_str().unwrap_or("unknown"),
+                                                    text.as_str().unwrap_or(""));
+                                            } else {
+                                                println!("Invalid message format: {}", message_json);
+                                            }
+                                        }
+                                        _ => {
+                                            println!("Unknown message type: {}", message_json);
                                         }
                                     }
-                                    "user_left" => {
-                                        if let Some(id) = received.get("id") {
-                                            println!("User left! (ID){}", id);
-                                        } else {
-                                            println!("Invalid message format: {}", message_json);
-                                        }
-                                    }
-                                    "chat" => {
-                                        if let (Some(id), Some(text)) = (received.get("id"), received.get("text")) {
-                                            println!("Received message. (FROM){}, (MSG){}",
-                                                id.as_str().unwrap_or("unknown"),
-                                                text.as_str().unwrap_or(""));
-                                        } else {
-                                            println!("Invalid message format: {}", message_json);
-                                        }
-                                    }
-                                    _ => {
-                                        println!("Unknown message type: {}", message_json);
-                                    }
+                                } else {
+                                    println!("Invalid message format: {}", message_json);
                                 }
                             } else {
-                                println!("Invalid message format: {}", message_json);
+                                println!("Failed to parse message: {}", message_json);
                             }
-                        } else {
-                            println!("Failed to parse message: {}", message_json);
                         }
-                    }
-                    Message::Close(_) => {
-                        println!("Server closed the connection");
+                        Message::Close(_) => {
+                            println!("Server closed the connection");
+                            break;
+                        }
+                        _ => println!("Unexpected message: {:?}", message_ok),
+                    },
+                    Err(e) => {
+                        println!("Connection error: {:?}", e);
+                        match e {
+                            tokio_tungstenite::tungstenite::Error::ConnectionClosed => {
+                                println!("Connection closed by server.");
+                            }
+                            tokio_tungstenite::tungstenite::Error::AlreadyClosed => {
+                                println!("The connection is already closed.");
+                            }
+                            tokio_tungstenite::tungstenite::Error::Io(_) => {
+                                println!("Network error occurred. The server might be down.");
+                            }
+                            _ => {
+                                println!("An unexpected error occurred: {:?}", e);
+                            }
+                        }
                         break;
                     }
-                    _ => println!("Unexpected message: {:?}", message_received),
                 }
             }
-
             // 소켓 스트림이 종료된 경우
             else => {
                 println!("Connection closed.");
