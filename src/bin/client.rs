@@ -42,10 +42,10 @@ async fn main() {
         // 두 개 이상의 future 중 먼저 완료되는 future 값을 return 해줌
         tokio::select! {
             // 사용자 입력을 처리
-            Some(message) = rx.recv() => {
-                if !message.trim().is_empty() {
+            Some(message_input) = rx.recv() => {
+                if !message_input.trim().is_empty() {
                     // 종료 요청
-                    if message == "exit" {
+                    if message_input == "exit" {
                         // TODO: 정상 종료 메시지 전송
                         let exit_message = json!({
                             "type": "user_exit",
@@ -63,7 +63,7 @@ async fn main() {
                     else {
                         let chat_message = json!({
                             "type": "chat",
-                            "text": message
+                            "text": message_input
                         })
                         .to_string();
 
@@ -71,30 +71,30 @@ async fn main() {
                             .send(Message::Text(chat_message.clone()))
                             .await
                             .expect("Failed to send message");
-                        println!("Sent message: {}", message);
+                        println!("Sent message: {}", message_input);
                     }
                 }
             }
 
             // 서버로부터 메시지 수신
-            Some(Ok(msg)) = ws_stream.next() => {
-                match msg {
-                    Message::Text(message) => {
-                        if let Ok(received) = serde_json::from_str::<Value>(&message) {
+            Some(Ok(message_received)) = ws_stream.next() => {
+                match message_received {
+                    Message::Text(message_json) => {
+                        if let Ok(received) = serde_json::from_str::<Value>(&message_json) {
                             if let Some(message_type) = received.get("type") {
                                 match message_type.as_str().unwrap_or_default() {
                                     "user_joined" => {
                                         if let Some(id) = received.get("id") {
                                             println!("User join! (ID){}", id);
                                         } else {
-                                            println!("Invalid message format: {}", message);
+                                            println!("Invalid message format: {}", message_json);
                                         }
                                     }
                                     "user_left" => {
                                         if let Some(id) = received.get("id") {
                                             println!("User left! (ID){}", id);
                                         } else {
-                                            println!("Invalid message format: {}", message);
+                                            println!("Invalid message format: {}", message_json);
                                         }
                                     }
                                     "chat" => {
@@ -103,26 +103,25 @@ async fn main() {
                                                 id.as_str().unwrap_or("unknown"),
                                                 text.as_str().unwrap_or(""));
                                         } else {
-                                            println!("Invalid message format: {}", message);
+                                            println!("Invalid message format: {}", message_json);
                                         }
                                     }
                                     _ => {
-                                        println!("Unknown message type: {}", message);
+                                        println!("Unknown message type: {}", message_json);
                                     }
                                 }
                             } else {
-                                println!("Invalid message format: {}", message);
+                                println!("Invalid message format: {}", message_json);
                             }
-
                         } else {
-                            println!("Failed to parse message: {}", message);
+                            println!("Failed to parse message: {}", message_json);
                         }
                     }
                     Message::Close(_) => {
                         println!("Server closed the connection");
                         break;
                     }
-                    _ => println!("Unexpected message: {:?}", msg),
+                    _ => println!("Unexpected message: {:?}", message_received),
                 }
             }
 
