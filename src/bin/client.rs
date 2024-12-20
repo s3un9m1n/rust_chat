@@ -85,14 +85,14 @@ async fn main() {
                                     match message_type.as_str().unwrap_or_default() {
                                         "user_joined" => {
                                             if let Some(id) = message.get("id") {
-                                                println!("User join! (ID){}", id);
+                                                println!("User join! (ID){}", id.as_str().unwrap_or_default());
                                             } else {
                                                 println!("Invalid message format: {}", message_json);
                                             }
                                         }
                                         "user_left" => {
                                             if let Some(id) = message.get("id") {
-                                                println!("User left! (ID){}", id);
+                                                println!("User left! (ID){}", id.as_str().unwrap_or_default());
                                             } else {
                                                 println!("Invalid message format: {}", message_json);
                                             }
