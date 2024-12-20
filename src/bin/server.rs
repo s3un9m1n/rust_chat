@@ -62,20 +62,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
         })
         .to_string();
 
-        // 락 획득
-        // FIXME: write lock 밖에 사용하지 않는 것 같음
-        let mut clients_lock = clients.write().await;
-
-        // 다른 클라이언트들에게 접속 알림 메시지 전송
-        for (id, sender) in clients_lock.iter_mut() {
-            if id == &client_id {
-                continue;
-            }
-
-            if let Err(e) = sender.send(Message::Text(join_message.clone())).await {
-                eprintln!("Error sending join notification. (TO){}, (ERR){:?}", id, e);
-            }
-        }
+        broadcast_message(&client_id, &clients, &join_message).await;
     }
 
     // WebSocket 스트림 분리
@@ -97,31 +84,14 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                             if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
                                 println!("Received message. (FROM){}, (MSG){}", client_id, text);
 
-                                // 락 획득
-                                let mut clients_lock = clients.write().await;
+                                let message = json!({
+                                    "type": "chat",
+                                    "id": client_id,
+                                    "text": text
+                                })
+                                .to_string();
 
-                                // 클라이언트 목록에서 현재 클라이언트의 `sender` 획득
-                                for (id, sender) in clients_lock.iter_mut() {
-                                    if id == &client_id {
-                                        continue;
-                                    }
-
-                                    let message = json!({
-                                        "type": "chat",
-                                        "id": client_id,
-                                        "text": text
-                                    })
-                                    .to_string();
-
-                                    // 받은 메시지를 다시 클라이언트로 전송
-                                    if let Err(e) = sender.send(Message::Text(message)).await {
-                                        eprintln!(
-                                            "Error sending message. (FROM){}, (MSG){}",
-                                            client_id, e
-                                        );
-                                        break;
-                                    }
-                                }
+                                broadcast_message(&client_id, &clients, &message).await;
                             }
                         }
                         Some("user_exit") => {
@@ -176,14 +146,22 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
         })
         .to_string();
 
-        // 락 획득
-        let mut clients_lock = clients.write().await;
+        broadcast_message(&client_id, &clients, &leave_message).await;
+    }
+}
 
-        // 다른 클라이언트들에게 접속 종료 알림 메시지 전송
-        for (id, sender) in clients_lock.iter_mut() {
-            if let Err(e) = sender.send(Message::Text(leave_message.clone())).await {
-                eprintln!("Error sending leave notification. (TO){}, (ERR){:?}", id, e);
-            }
+async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) {
+    // 락 획득
+    // FIXME: write lock 밖에 사용하지 않는 것 같음
+    let mut clients_lock = clients.write().await;
+
+    // 자신을 제외한 클라이언트에게 브로드캐스트
+    for (id, sender) in clients_lock.iter_mut() {
+        if id == client_id {
+            continue;
+        }
+        if let Err(e) = sender.send(Message::Text(message.to_string())).await {
+            eprintln!("Error broadcasting message. (TO){}, (ERR){:?}", id, e);
         }
     }
 }
