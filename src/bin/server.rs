@@ -54,16 +54,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     println!("New WebSocket connection");
 
     // 사용자 접속 알림
-    {
-        // 접속 알림 메시지
-        let join_message = json!({
-            "type": "user_joined",
-            "id": client_id
-        })
-        .to_string();
-
-        broadcast_message(&client_id, &clients, &join_message).await;
-    }
+    notify_join(&client_id, &clients).await;
 
     // WebSocket 스트림 분리
     let (write, mut read) = ws_stream.split();
@@ -148,6 +139,17 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
 
         broadcast_message(&client_id, &clients, &leave_message).await;
     }
+}
+
+async fn notify_join(client_id: &str, clients: &ClientMap) {
+    // 접속 알림 메시지
+    let join_message = json!({
+        "type": "user_joined",
+        "id": client_id
+    })
+    .to_string();
+
+    broadcast_message(&client_id, &clients, &join_message).await;
 }
 
 async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) {
