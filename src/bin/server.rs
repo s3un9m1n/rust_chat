@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, tungstenite::Error};
+use tokio_tungstenite::{accept_async, tungstenite::{client, protocol::Message, Error}};
 
 type ClientMap = Arc<
     RwLock<
@@ -53,9 +53,6 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
 
     println!("New WebSocket connection");
 
-    // 사용자 접속 알림
-    notify_join(&client_id, &clients).await;
-
     // WebSocket 스트림 분리
     let (write, mut read) = ws_stream.split();
 
@@ -66,6 +63,9 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
         println!("Client joined. (ID){}", client_id);
     }
 
+    // 사용자 접속 알림
+    notify_join(&client_id, &clients).await;
+
     while let Some(message) = read.next().await {
         match message {
             Ok(Message::Text(text)) => {
@@ -75,14 +75,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                             if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
                                 println!("Received message. (FROM){}, (MSG){}", client_id, text);
 
-                                let message = json!({
-                                    "type": "chat",
-                                    "id": client_id,
-                                    "text": text
-                                })
-                                .to_string();
-
-                                broadcast_message(&client_id, &clients, &message).await;
+                                handleChatMessage(&client_id, &clients, text).await;
                             }
                         }
                         Some("user_exit") => {
@@ -152,6 +145,17 @@ async fn notify_leave(client_id: &str, clients: &ClientMap) {
     .to_string();
 
     broadcast_message(&client_id, &clients, &leave_message).await;
+}
+
+async fn handleChatMessage(client_id: &str, clients: &ClientMap, text: &str) {
+    let chat_message = json!({
+        "type": "chat",
+        "id": client_id,
+        "text": text
+    })
+    .to_string();
+
+    broadcast_message(&client_id, &clients, &chat_message).await;
 }
 
 async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) {
