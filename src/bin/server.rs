@@ -129,16 +129,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     }
 
     // 사용저 접속 종료 알림
-    {
-        // 접속 종료 알림 메시지
-        let leave_message = json!({
-            "type": "user_left",
-            "id": client_id
-        })
-        .to_string();
-
-        broadcast_message(&client_id, &clients, &leave_message).await;
-    }
+    notify_leave(&client_id, &clients).await;
 }
 
 async fn notify_join(client_id: &str, clients: &ClientMap) {
@@ -150,6 +141,17 @@ async fn notify_join(client_id: &str, clients: &ClientMap) {
     .to_string();
 
     broadcast_message(&client_id, &clients, &join_message).await;
+}
+
+async fn notify_leave(client_id: &str, clients: &ClientMap) {
+    // 접속 종료 알림 메시지
+    let leave_message = json!({
+        "type": "user_left",
+        "id": client_id
+    })
+    .to_string();
+
+    broadcast_message(&client_id, &clients, &leave_message).await;
 }
 
 async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) {
