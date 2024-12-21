@@ -1,10 +1,11 @@
 use futures_util::{SinkExt, StreamExt};
+use futures_util::stream::SplitSink;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-use tokio_tungstenite::{accept_async, tungstenite::{client, protocol::Message, Error}};
+use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::{protocol::Message, Error}};
 
 type ClientMap = Arc<
     RwLock<
@@ -57,11 +58,8 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     let (write, mut read) = ws_stream.split();
 
     // `write` 스트림을 클라이언트 목록에 추가
-    {
-        let mut clients_lock = clients.write().await;
-        clients_lock.insert(client_id.clone(), write);
-        println!("Client joined. (ID){}", client_id);
-    }
+    insert_client_list(&clients, &client_id, write).await;
+    println!("Client joined. (ID){}", client_id);
 
     // 사용자 접속 알림
     notify_join(&client_id, &clients).await;
@@ -114,14 +112,20 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     }
 
     // `write` 스트림을 클라이언트 목록에 삭제
-    {
-        let mut clients_lock = clients.write().await;
-        clients_lock.remove(&client_id);
-        println!("Client disconnected. (ID){}", client_id);
-    }
+    remove_client_list(&clients, &client_id).await;
 
     // 사용저 접속 종료 알림
     notify_leave(&client_id, &clients).await;
+}
+
+async fn insert_client_list(clients: &ClientMap, client_id: &str, ws_write: SplitSink<WebSocketStream<TcpStream>, Message>) {
+    let mut clients_lock: tokio::sync::RwLockWriteGuard<'_, HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>> = clients.write().await;
+    clients_lock.insert(client_id.to_string(), ws_write);
+}
+
+async fn remove_client_list(clients: &ClientMap, client_id: &str) {
+    let mut clients_lock = clients.write().await;
+    clients_lock.remove(client_id);
 }
 
 async fn notify_join(client_id: &str, clients: &ClientMap) {
