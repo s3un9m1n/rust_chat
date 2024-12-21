@@ -74,8 +74,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
                         Some("chat") => {
                             if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
                                 println!("Received message. (FROM){}, (MSG){}", client_id, text);
-
-                                handleChatMessage(&client_id, &clients, text).await;
+                                handle_chat_message(&client_id, &clients, text).await;
                             }
                         }
                         Some("user_exit") => {
@@ -147,7 +146,7 @@ async fn notify_leave(client_id: &str, clients: &ClientMap) {
     broadcast_message(&client_id, &clients, &leave_message).await;
 }
 
-async fn handleChatMessage(client_id: &str, clients: &ClientMap, text: &str) {
+async fn handle_chat_message(client_id: &str, clients: &ClientMap, text: &str) {
     let chat_message = json!({
         "type": "chat",
         "id": client_id,
