@@ -1,11 +1,15 @@
-use futures_util::{SinkExt, StreamExt};
 use futures_util::stream::SplitSink;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::{protocol::Message, Error}};
+use tokio_tungstenite::{
+    accept_async,
+    tungstenite::{protocol::Message, Error},
+    WebSocketStream,
+};
 
 type ClientMap = Arc<
     RwLock<
@@ -65,49 +69,8 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     notify_join(&client_id, &clients).await;
 
     while let Some(message) = read.next().await {
-        match message {
-            Ok(Message::Text(text)) => {
-                if let Ok(json_message) = serde_json::from_str::<Value>(&text) {
-                    match json_message.get("type").and_then(|t| t.as_str()) {
-                        Some("chat") => {
-                            if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
-                                println!("Received message. (FROM){}, (MSG){}", client_id, text);
-                                handle_chat_message(&client_id, &clients, text).await;
-                            }
-                        }
-                        Some("user_exit") => {
-                            println!("Exit client. (FROM){}", client_id);
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Ok(Message::Binary(_)) => {
-                // 바이너리 메시지는 처리하지 않음
-                println!("Received binary message");
-            }
-            Err(Error::Protocol(protocol_error)) => {
-                if protocol_error
-                    .to_string()
-                    .contains("Connection reset without closing handshake")
-                {
-                    // 강제 종료 감지
-                    println!(
-                        "Client forcibly disconnected without closing handshake. (ID){}",
-                        client_id
-                    );
-                } else {
-                    // 다른 프로토콜 에러 처리
-                    eprintln!("Protocol error: {} (ID){})", protocol_error, client_id);
-                }
-                break;
-            }
-            Err(e) => {
-                eprintln!("Error reading message: {}", e);
-                break;
-            }
-            _ => {}
+        if let Err(_) = process_message(&client_id, &clients, message).await {
+            break;
         }
     }
 
@@ -118,8 +81,15 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     notify_leave(&client_id, &clients).await;
 }
 
-async fn insert_client_list(clients: &ClientMap, client_id: &str, ws_write: SplitSink<WebSocketStream<TcpStream>, Message>) {
-    let mut clients_lock: tokio::sync::RwLockWriteGuard<'_, HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>> = clients.write().await;
+async fn insert_client_list(
+    clients: &ClientMap,
+    client_id: &str,
+    ws_write: SplitSink<WebSocketStream<TcpStream>, Message>,
+) {
+    let mut clients_lock: tokio::sync::RwLockWriteGuard<
+        '_,
+        HashMap<String, SplitSink<WebSocketStream<TcpStream>, Message>>,
+    > = clients.write().await;
     clients_lock.insert(client_id.to_string(), ws_write);
 }
 
@@ -174,5 +144,58 @@ async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) 
         if let Err(e) = sender.send(Message::Text(message.to_string())).await {
             eprintln!("Error broadcasting message. (TO){}, (ERR){:?}", id, e);
         }
+    }
+}
+
+async fn process_message(
+    client_id: &str,
+    clients: &ClientMap,
+    message: Result<Message, Error>,
+) -> Result<(), ()> {
+    match message {
+        Ok(Message::Text(text)) => {
+            if let Ok(json_message) = serde_json::from_str::<Value>(&text) {
+                match json_message.get("type").and_then(|t| t.as_str()) {
+                    Some("chat") => {
+                        if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
+                            println!("Received message. (FROM){}, (MSG){}", client_id, text);
+                            handle_chat_message(&client_id, &clients, text).await;
+                        }
+                    }
+                    Some("user_exit") => {
+                        println!("Exit client. (FROM){}", client_id);
+                        return Err(());
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        Ok(Message::Binary(_)) => {
+            // 바이너리 메시지는 처리하지 않음
+            println!("Received binary message");
+            Ok(())
+        }
+        Err(Error::Protocol(protocol_error)) => {
+            if protocol_error
+                .to_string()
+                .contains("Connection reset without closing handshake")
+            {
+                // 강제 종료 감지
+                println!(
+                    "Client forcibly disconnected without closing handshake. (ID){}",
+                    client_id
+                );
+            } else {
+                // 다른 프로토콜 에러 처리
+                eprintln!("Protocol error: {} (ID){})", protocol_error, client_id);
+            }
+            Err(())
+        }
+        Err(e) => {
+            eprintln!("Error reading message: {}", e);
+            Err(())
+        }
+        _ => Ok(()),
     }
 }
