@@ -153,24 +153,7 @@ async fn process_message(
     message: Result<Message, Error>,
 ) -> Result<(), ()> {
     match message {
-        Ok(Message::Text(text)) => {
-            if let Ok(json_message) = serde_json::from_str::<Value>(&text) {
-                match json_message.get("type").and_then(|t| t.as_str()) {
-                    Some("chat") => {
-                        if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
-                            println!("Received message. (FROM){}, (MSG){}", client_id, text);
-                            handle_chat_message(&client_id, &clients, text).await;
-                        }
-                    }
-                    Some("user_exit") => {
-                        println!("Exit client. (FROM){}", client_id);
-                        return Err(());
-                    }
-                    _ => {}
-                }
-            }
-            Ok(())
-        }
+        Ok(Message::Text(text)) => process_json_message(client_id, clients, &text).await,
         Ok(Message::Binary(_)) => {
             // 바이너리 메시지는 처리하지 않음
             println!("Received binary message");
@@ -198,4 +181,30 @@ async fn process_message(
         }
         _ => Ok(()),
     }
+}
+
+async fn process_json_message(
+    client_id: &str,
+    clients: &ClientMap,
+    message: &str,
+) -> Result<(), ()> {
+    if let Ok(json_message) = serde_json::from_str::<Value>(&message) {
+        match json_message.get("type").and_then(|t| t.as_str()) {
+            Some("user_exit") => {
+                println!("Exit client. (FROM){}", client_id);
+                return Err(());
+            }
+            Some("chat") => {
+                if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
+                    println!("Received message. (FROM){}, (MSG){}", client_id, text);
+                    handle_chat_message(&client_id, &clients, text).await;
+                }
+            }
+            _ => {}
+        }
+    } else {
+        println!("Invalid JSON received: {}", message);
+        return Err(());
+    }
+    Ok(())
 }
