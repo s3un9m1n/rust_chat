@@ -25,18 +25,7 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel(32);
 
     // 사용자 입력을 읽는 태스크
-    tokio::spawn(async move {
-        let stdin = io::BufReader::new(io::stdin());
-        let mut lines = stdin.lines();
-
-        while let Ok(Some(line)) = lines.next_line().await {
-            if !line.trim().is_empty() {
-                if tx.send(line).await.is_err() {
-                    break; // 채널이 닫힌 경우 루프 종료
-                }
-            }
-        }
-    });
+    tokio::spawn(read_user_input(tx));
 
     loop {
         // 두 개 이상의 future 중 먼저 완료되는 future 값을 return 해줌
@@ -147,6 +136,19 @@ async fn main() {
             else => {
                 println!("Connection closed.");
                 break;
+            }
+        }
+    }
+}
+
+async fn read_user_input(tx: mpsc::Sender<String>) {
+    let stdin = io::BufReader::new(io::stdin());
+    let mut lines = stdin.lines();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        if !line.trim().is_empty() {
+            if tx.send(line).await.is_err() {
+                break; // 채널이 닫힌 경우 종료
             }
         }
     }
