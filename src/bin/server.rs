@@ -154,32 +154,9 @@ async fn process_message(
 ) -> Result<(), ()> {
     match message {
         Ok(Message::Text(text)) => process_json_message(client_id, clients, &text).await,
-        Ok(Message::Binary(_)) => {
-            // 바이너리 메시지는 처리하지 않음
-            println!("Received binary message");
-            Ok(())
-        }
-        Err(Error::Protocol(protocol_error)) => {
-            if protocol_error
-                .to_string()
-                .contains("Connection reset without closing handshake")
-            {
-                // 강제 종료 감지
-                println!(
-                    "Client forcibly disconnected without closing handshake. (ID){}",
-                    client_id
-                );
-            } else {
-                // 다른 프로토콜 에러 처리
-                eprintln!("Protocol error: {} (ID){})", protocol_error, client_id);
-            }
-            Err(())
-        }
-        Err(e) => {
-            eprintln!("Error reading message: {}", e);
-            Err(())
-        }
-        _ => Ok(()),
+        Ok(Message::Binary(_)) => process_binary_message(),
+        Err(e) => process_error_message(client_id, e),
+        Ok(_) => Ok(())
     }
 }
 
@@ -207,4 +184,34 @@ async fn process_json_message(
         return Err(());
     }
     Ok(())
+}
+
+fn process_binary_message() -> Result<(), ()> {
+    // 바이너리 메시지는 처리하지 않음
+    println!("Received binary message");
+    Ok(())
+}
+
+fn process_error_message(client_id: &str, e: Error) -> Result<(), ()> {
+    match e {
+        Error::Protocol(protocol_error) => {
+            if protocol_error
+                .to_string()
+                .contains("Connection reset without closing handshake")
+            {
+                // 강제 종료 감지
+                println!(
+                    "Client forcibly disconnected without closing handshake. (ID){}",
+                    client_id
+                );
+            } else {
+                // 다른 프로토콜 에러 처리
+                eprintln!("Protocol error: {} (ID){})", protocol_error, client_id);
+            }
+        }
+        _ => {
+            eprintln!("Error reading message: {}", e);
+        }
+    }
+    Err(())
 }
