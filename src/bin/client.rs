@@ -79,10 +79,7 @@ where
     // 종료 요청
     if message_input == "exit" {
         // TODO: 정상 종료 메시지 전송
-        let exit_message = json!({
-            "type": "user_exit",
-        })
-        .to_string();
+        let exit_message = create_json_message("uesr_exit", None);
 
         ws_stream
             .send(Message::Text(exit_message))
@@ -93,11 +90,7 @@ where
     }
     // 일반 데이터 전송
     else {
-        let chat_message = json!({
-            "type": "chat",
-            "text": message_input
-        })
-        .to_string();
+        let chat_message = create_json_message("chat", Some(&message_input));
 
         ws_stream
             .send(Message::Text(chat_message.clone()))
@@ -176,5 +169,19 @@ async fn handle_server_message(
             println!("Unknown server message. {:?}", message_received);
             Ok(())
         }
+    }
+}
+
+fn create_json_message(json_type: &str, text: Option<&String>) -> String {
+    match text {
+        // text 필드 있는 경우
+        Some(content) => json!({
+            "type": json_type,
+            "text": content,
+        }).to_string(),
+        // text 필드 없는 경우
+        None => json!({
+            "type": json_type,
+        }).to_string(),
     }
 }
