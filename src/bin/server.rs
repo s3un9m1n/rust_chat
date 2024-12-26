@@ -156,7 +156,7 @@ async fn process_message(
         Ok(Message::Text(text)) => process_json_message(client_id, clients, &text).await,
         Ok(Message::Binary(_)) => process_binary_message(),
         Err(e) => process_error_message(client_id, e),
-        Ok(_) => Ok(())
+        Ok(_) => Ok(()),
     }
 }
 

@@ -32,36 +32,8 @@ async fn main() {
         tokio::select! {
             // 사용자 입력을 처리
             Some(message_input) = rx.recv() => {
-                if !message_input.trim().is_empty() {
-                    // 종료 요청
-                    if message_input == "exit" {
-                        // TODO: 정상 종료 메시지 전송
-                        let exit_message = json!({
-                            "type": "user_exit",
-                        })
-                        .to_string();
-
-                        ws_stream
-                        .send(Message::Text(exit_message))
-                        .await
-                        .expect("Failed to send exit message");
-
-                        break;
-                    }
-                    // 일반 데이터 전송
-                    else {
-                        let chat_message = json!({
-                            "type": "chat",
-                            "text": message_input
-                        })
-                        .to_string();
-
-                        ws_stream
-                            .send(Message::Text(chat_message.clone()))
-                            .await
-                            .expect("Failed to send message");
-                        println!("Sent message: {}", message_input);
-                    }
+                if handle_user_input(&mut ws_stream, message_input).await.is_err() {
+                    break;
                 }
             }
             // 서버로부터 메시지 수신
@@ -152,4 +124,48 @@ async fn read_user_input(tx: mpsc::Sender<String>) {
             }
         }
     }
+}
+async fn handle_user_input<S>(
+    ws_stream: &mut tokio_tungstenite::WebSocketStream<S>,
+    message_input: String,
+) -> Result<(), ()> 
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // 빈 메시지는 무시
+    if message_input.trim().is_empty() {
+        return Ok(());
+    }
+
+    // 종료 요청
+    if message_input == "exit" {
+        // TODO: 정상 종료 메시지 전송
+        let exit_message = json!({
+            "type": "user_exit",
+        })
+        .to_string();
+
+        ws_stream
+        .send(Message::Text(exit_message))
+        .await
+        .expect("Failed to send exit message");
+
+        return Err(());
+    }
+    // 일반 데이터 전송
+    else {
+        let chat_message = json!({
+            "type": "chat",
+            "text": message_input
+        })
+        .to_string();
+
+        ws_stream
+            .send(Message::Text(chat_message.clone()))
+            .await
+            .expect("Failed to send message");
+        println!("Sent message: {}", message_input);
+    }
+    
+    Ok(())
 }
