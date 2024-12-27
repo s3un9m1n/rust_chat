@@ -64,6 +64,7 @@ async fn read_user_input(tx: mpsc::Sender<String>) {
         }
     }
 }
+
 async fn handle_user_input<S>(
     ws_stream: &mut tokio_tungstenite::WebSocketStream<S>,
     message_input: String,
@@ -81,10 +82,7 @@ where
         // TODO: 정상 종료 메시지 전송
         let exit_message = create_json_message("uesr_exit", None);
 
-        ws_stream
-            .send(Message::Text(exit_message))
-            .await
-            .expect("Failed to send exit message");
+        send_to_server(ws_stream, exit_message).await.expect("Failed to send exit message");
 
         return Err(());
     }
@@ -92,10 +90,8 @@ where
     else {
         let chat_message = create_json_message("chat", Some(&message_input));
 
-        ws_stream
-            .send(Message::Text(chat_message.clone()))
-            .await
-            .expect("Failed to send message");
+        send_to_server(ws_stream, chat_message).await.expect("Failed to send exit message");
+
         println!("Sent message: {}", message_input);
     }
 
@@ -178,10 +174,24 @@ fn create_json_message(json_type: &str, text: Option<&String>) -> String {
         Some(content) => json!({
             "type": json_type,
             "text": content,
-        }).to_string(),
+        })
+        .to_string(),
         // text 필드 없는 경우
         None => json!({
             "type": json_type,
-        }).to_string(),
+        })
+        .to_string(),
     }
+}
+
+async fn send_to_server<S>(ws_stream: &mut tokio_tungstenite::WebSocketStream<S>, message: String) -> Result<(), ()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // FIXME: Result 객체 받아서 Ok / Err 처리 필요
+    ws_stream
+        .send(Message::Text(message))
+        .await;
+    
+    Ok(())
 }
