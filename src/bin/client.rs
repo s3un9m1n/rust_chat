@@ -1,6 +1,6 @@
 use ctrlc;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::process;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
@@ -107,43 +107,7 @@ async fn handle_server_message(
     message_received: Result<Message, tokio_tungstenite::tungstenite::Error>,
 ) -> Result<(), ()> {
     match message_received {
-        Ok(Message::Text(message_json)) => {
-            if let Ok(message) = serde_json::from_str::<Value>(&message_json) {
-                match message.get("type").and_then(|t| t.as_str()) {
-                    Some("user_joined") => {
-                        if let Some(id) = message.get("id") {
-                            println!("User join! (ID){}", id.as_str().unwrap_or_default());
-                        } else {
-                            println!("Invalid message format: {}", message_json);
-                        }
-                    }
-                    Some("user_left") => {
-                        if let Some(id) = message.get("id") {
-                            println!("User left! (ID){}", id.as_str().unwrap_or_default());
-                        } else {
-                            println!("Invalid message format: {}", message_json);
-                        }
-                    }
-                    Some("chat") => {
-                        if let (Some(id), Some(text)) = (message.get("id"), message.get("text")) {
-                            println!(
-                                "Received message. (FROM){}, (MSG){}",
-                                id.as_str().unwrap_or("unknown"),
-                                text.as_str().unwrap_or("")
-                            );
-                        } else {
-                            println!("Invalid message format: {}", message_json);
-                        }
-                    }
-                    _ => {
-                        println!("Unknown message type: {}", message_json);
-                    }
-                }
-            } else {
-                println!("Invalid message format: {}", message_json);
-            }
-            Ok(())
-        }
+        Ok(Message::Text(message_json)) => handle_server_json_message(message_json),
         Ok(Message::Close(_)) => {
             println!("Server closed the connection");
             Err(())
@@ -154,7 +118,7 @@ async fn handle_server_message(
         }
         _ => {
             println!("Unknown server message. {:?}", message_received);
-            Ok(())
+            Err(())
         }
     }
 }
@@ -190,16 +154,83 @@ where
     })
 }
 
+fn handle_server_json_message(message: String) -> Result<(), ()> {
+    let json: serde_json::Value = match serde_json::from_str(&message) {
+        Ok(json) => json,
+        Err(_) => {
+            eprintln!("Invalid message format. (MSG){:?}", message);
+            return Err(());
+        }
+    };
+
+    match json.get("type").and_then(|t| t.as_str()) {
+        Some("user_joined") => handle_server_user_join(&json),
+        Some("user_left") => handle_server_user_left(&json),
+        Some("chat") => handle_server_user_chat(&json),
+        _ => {
+            eprintln!("Unknown message type. (JSON){:?}", json);
+            Err(())
+        }
+    }
+}
+
 fn handle_server_connection_error(e: Error) {
     let details = match e {
         tokio_tungstenite::tungstenite::Error::ConnectionClosed => "Connection closed by server.",
         tokio_tungstenite::tungstenite::Error::AlreadyClosed => "The connection is already closed.",
-        tokio_tungstenite::tungstenite::Error::Io(_) => "Network error occurred. The server might be down.",
+        tokio_tungstenite::tungstenite::Error::Io(_) => {
+            "Network error occurred. The server might be down."
+        }
         _ => "An unexpected error occurred.",
     };
 
-    println!(
-        "Connection error: {:?}\nDetails: {}",
-        e, details
-    );
+    println!("Connection error: {:?}\nDetails: {}", e, details);
+}
+
+fn handle_server_user_join(json: &serde_json::Value) -> Result<(), ()> {
+    let id = match json.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            eprintln!("Invalid message format. (JSON){:?}", json);
+            return Err(());
+        }
+    };
+
+    println!("User join! (ID){}", id);
+    Ok(())
+}
+
+fn handle_server_user_left(json: &serde_json::Value) -> Result<(), ()> {
+    let id = match json.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            eprintln!("Invalid message format. (JSON){:?}", json);
+            return Err(());
+        }
+    };
+
+    println!("User left! (ID){}", id);
+    Ok(())
+}
+
+fn handle_server_user_chat(json: &serde_json::Value) -> Result<(), ()> {
+
+    let id = match json.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            eprintln!("Invalid JSON format(ID) (JSON){}", json);
+            return Err(());
+        }
+    };
+
+    let text = match json.get("text").and_then(|v| v.as_str()) {
+        Some(text) => text,
+        None => {
+            eprintln!("Invalid JSON format(TEXT) (JSON){}", json);
+            return Err(());
+        }
+    };
+
+    println!("Received message. (FROM){}, (MSG){}", id, text);
+    Ok(())
 }
