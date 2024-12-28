@@ -6,6 +6,7 @@ use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::tungstenite::Error;
 
 #[tokio::main]
 async fn main() {
@@ -82,7 +83,9 @@ where
         // TODO: 정상 종료 메시지 전송
         let exit_message = create_json_message("uesr_exit", None);
 
-        send_to_server(ws_stream, exit_message).await.expect("Failed to send exit message");
+        send_to_server(ws_stream, exit_message)
+            .await
+            .expect("Failed to send exit message");
 
         return Err(());
     }
@@ -90,7 +93,9 @@ where
     else {
         let chat_message = create_json_message("chat", Some(&message_input));
 
-        send_to_server(ws_stream, chat_message).await.expect("Failed to send exit message");
+        send_to_server(ws_stream, chat_message)
+            .await
+            .expect("Failed to send exit message");
 
         println!("Sent message: {}", message_input);
     }
@@ -184,14 +189,17 @@ fn create_json_message(json_type: &str, text: Option<&String>) -> String {
     }
 }
 
-async fn send_to_server<S>(ws_stream: &mut tokio_tungstenite::WebSocketStream<S>, message: String) -> Result<(), ()>
+async fn send_to_server<S>(
+    ws_stream: &mut tokio_tungstenite::WebSocketStream<S>,
+    message: String,
+) -> Result<(), Error>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    // FIXME: Result 객체 받아서 Ok / Err 처리 필요
-    ws_stream
-        .send(Message::Text(message))
-        .await;
-    
-    Ok(())
+    // ws_stream.send()의 결과 처리
+    ws_stream.send(Message::Text(message)).await.map_err(|err| {
+        eprintln!("Failed to send message. (ERROR){:?}", err);
+
+        err
+    })
 }
