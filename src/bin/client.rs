@@ -149,21 +149,7 @@ async fn handle_server_message(
             Err(())
         }
         Err(e) => {
-            println!("Connection error: {:?}", e);
-            match e {
-                tokio_tungstenite::tungstenite::Error::ConnectionClosed => {
-                    println!("Connection closed by server.");
-                }
-                tokio_tungstenite::tungstenite::Error::AlreadyClosed => {
-                    println!("The connection is already closed.");
-                }
-                tokio_tungstenite::tungstenite::Error::Io(_) => {
-                    println!("Network error occurred. The server might be down.");
-                }
-                _ => {
-                    println!("An unexpected error occurred: {:?}", e);
-                }
-            }
+            handle_server_connection_error(e);
             Err(())
         }
         _ => {
@@ -202,4 +188,18 @@ where
 
         err
     })
+}
+
+fn handle_server_connection_error(e: Error) {
+    let details = match e {
+        tokio_tungstenite::tungstenite::Error::ConnectionClosed => "Connection closed by server.",
+        tokio_tungstenite::tungstenite::Error::AlreadyClosed => "The connection is already closed.",
+        tokio_tungstenite::tungstenite::Error::Io(_) => "Network error occurred. The server might be down.",
+        _ => "An unexpected error occurred.",
+    };
+
+    println!(
+        "Connection error: {:?}\nDetails: {}",
+        e, details
+    );
 }
