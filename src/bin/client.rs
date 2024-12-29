@@ -1,8 +1,7 @@
-use ctrlc;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use std::process;
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::signal;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message;
@@ -10,39 +9,38 @@ use tokio_tungstenite::tungstenite::Error;
 
 #[tokio::main]
 async fn main() {
-    // Ctrl+C 처리
-    ctrlc::set_handler(move || {
-        println!("\nExit program.");
-        process::exit(0);
-    })
-    .expect("Error setting Ctrl+C handler");
-
     let url = "ws://localhost:8080";
 
+    // (작업#1) 웹소켓 서버 연결
     let (mut ws_stream, _) = connect_async(url).await.expect("Failed to connect");
     println!("Connected to the server!");
 
     // 비동기 입력을 처리하기 위한 채널
     let (tx, mut rx) = mpsc::channel(32);
 
-    // 사용자 입력을 읽는 태스크
+    // (작업#2) 사용자 입력을 읽는 태스크
     tokio::spawn(read_user_input(tx));
 
     loop {
         // 두 개 이상의 future 중 먼저 완료되는 future 값을 return 해줌
         tokio::select! {
-            // 사용자 입력을 처리
-            Some(message_input) = rx.recv() => {
-                if handle_user_input(&mut ws_stream, message_input).await.is_err() {
-                    break;
-                }
-            }
-            // 서버로부터 메시지 수신
+            // (작업#1) 서버로부터 메시지 수신
             Some(message_received) = ws_stream.next() => {
                 if let Err(e) = handle_server_message(message_received).await {
                     eprintln!("Error handling server message: {:?}", e);
                     break;
                 }
+            }
+            // (작업#2) 사용자 입력을 처리
+            Some(message_input) = rx.recv() => {
+                if handle_user_input(&mut ws_stream, message_input).await.is_err() {
+                    break;
+                }
+            }
+            // (작업#3) Ctrl+C 처리
+            _ = signal::ctrl_c() => {
+                println!("\nExit program.");
+                break;
             }
             // 소켓 스트림이 종료된 경우
             else => {
@@ -50,6 +48,13 @@ async fn main() {
                 break;
             }
         }
+    }
+
+    // WebSocket 스트림 종료
+    // FIXME: 서버쪽에서 Ctrl+c로 인한 정상 종료 시 user exit 상황을 감지하지 못함
+    // FIXME: 서버쪽에서 Ctrl+c 입력 시 비정상 종료
+    if let Err(e) = ws_stream.close(None).await {
+        eprintln!("Error closing WebSocket: {:?}", e);
     }
 }
 
@@ -86,8 +91,6 @@ where
         send_to_server(ws_stream, exit_message)
             .await
             .expect("Failed to send exit message");
-
-        return Err(());
     }
     // 일반 데이터 전송
     else {
@@ -214,7 +217,6 @@ fn handle_server_user_left(json: &serde_json::Value) -> Result<(), ()> {
 }
 
 fn handle_server_user_chat(json: &serde_json::Value) -> Result<(), ()> {
-
     let id = match json.get("id").and_then(|v| v.as_str()) {
         Some(id) => id,
         None => {
