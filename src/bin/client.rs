@@ -39,6 +39,12 @@ async fn main() {
             }
             // (작업#3) Ctrl+C 처리
             _ = signal::ctrl_c() => {
+                // 서버로 종료 메시지 전송
+                let exit_message = create_json_message("user_exit", None);
+                if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
+                    eprintln!("Failed to send exit message: {:?}", e);
+                }
+
                 println!("\nExit program.");
                 break;
             }
@@ -51,7 +57,6 @@ async fn main() {
     }
 
     // WebSocket 스트림 종료
-    // FIXME: 서버쪽에서 Ctrl+c로 인한 정상 종료 시 user exit 상황을 감지하지 못함
     // FIXME: 서버쪽에서 Ctrl+c 입력 시 비정상 종료
     if let Err(e) = ws_stream.close(None).await {
         eprintln!("Error closing WebSocket: {:?}", e);
