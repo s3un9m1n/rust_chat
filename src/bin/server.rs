@@ -38,6 +38,8 @@ async fn main() {
     // TODO: `id` 값을 특정 값으로 변경
     let mut id = 0;
 
+    // FIXME: ctrl+c 입력시 클라이언트들 대상으로 우아한 종료 시도
+
     // 클라이언트 연결 대기
     while let Ok((stream, _)) = listener.accept().await {
         // 스레드마다 전달하기 위해 스마트포인터 `clone`

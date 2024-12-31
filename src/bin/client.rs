@@ -57,7 +57,7 @@ async fn main() {
     }
 
     // WebSocket 스트림 종료
-    // FIXME: 서버쪽에서 Ctrl+c 입력 시 비정상 종료
+    // FIXME: 에러 로그가 너무 많이 산발적으로 출력됨 -> anyhow 도입 필요
     if let Err(e) = ws_stream.close(None).await {
         eprintln!("Error closing WebSocket: {:?}", e);
     }
@@ -121,7 +121,7 @@ async fn handle_server_message(
             Err(())
         }
         Err(e) => {
-            handle_server_connection_error(e);
+            handle_and_log_connection_error(e);
             Err(())
         }
         _ => {
@@ -182,17 +182,21 @@ fn handle_server_json_message(message: String) -> Result<(), ()> {
     }
 }
 
-fn handle_server_connection_error(e: Error) {
-    let details = match e {
-        tokio_tungstenite::tungstenite::Error::ConnectionClosed => "Connection closed by server.",
-        tokio_tungstenite::tungstenite::Error::AlreadyClosed => "The connection is already closed.",
-        tokio_tungstenite::tungstenite::Error::Io(_) => {
-            "Network error occurred. The server might be down."
+fn handle_and_log_connection_error(e: Error) {
+    match e {
+        Error::ConnectionClosed => {
+            println!("Server has closed the connection gracefully.");
         }
-        _ => "An unexpected error occurred.",
-    };
-
-    println!("Connection error: {:?}\nDetails: {}", e, details);
+        Error::AlreadyClosed => {
+            println!("Connection already closed.");
+        }
+        Error::Io(err) if err.kind() == std::io::ErrorKind::ConnectionReset => {
+            println!("Server forcefully closed the connection (reset).");
+        }
+        _ => {
+            eprintln!("Unexpected connection error: {:?}", e);
+        }
+    }
 }
 
 fn handle_server_user_join(json: &serde_json::Value) -> Result<(), ()> {
