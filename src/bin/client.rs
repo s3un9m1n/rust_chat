@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
+use project::common::message;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::signal;
 use tokio::sync::mpsc;
@@ -40,7 +40,7 @@ async fn main() {
             // (작업#3) Ctrl+C 처리
             _ = signal::ctrl_c() => {
                 // 서버로 종료 메시지 전송
-                let exit_message = create_json_message("user_exit", None);
+                let exit_message = message::create_message("user_exit", None);
                 if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
                     eprintln!("Failed to send exit message: {:?}", e);
                 }
@@ -91,7 +91,7 @@ where
     // 종료 요청
     if message_input == "exit" {
         // TODO: 정상 종료 메시지 전송
-        let exit_message = create_json_message("uesr_exit", None);
+        let exit_message = message::create_message("uesr_exit", None);
 
         send_to_server(ws_stream, exit_message)
             .await
@@ -99,7 +99,7 @@ where
     }
     // 일반 데이터 전송
     else {
-        let chat_message = create_json_message("chat", Some(&message_input));
+        let chat_message = message::create_message("chat", Some(&message_input));
 
         send_to_server(ws_stream, chat_message)
             .await
@@ -128,22 +128,6 @@ async fn handle_server_message(
             println!("Unknown server message. {:?}", message_received);
             Err(())
         }
-    }
-}
-
-fn create_json_message(json_type: &str, text: Option<&String>) -> String {
-    match text {
-        // text 필드 있는 경우
-        Some(content) => json!({
-            "type": json_type,
-            "text": content,
-        })
-        .to_string(),
-        // text 필드 없는 경우
-        None => json!({
-            "type": json_type,
-        })
-        .to_string(),
     }
 }
 
