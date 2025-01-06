@@ -11,6 +11,9 @@ use tokio_tungstenite::tungstenite::Error;
 async fn main() {
     let url = "ws://localhost:8080";
 
+    // ID
+    let mut user_id = None;
+
     // (작업#1) 웹소켓 서버 연결
     let (mut ws_stream, _) = connect_async(url).await.expect("Failed to connect");
     println!("Connected to the server!");
@@ -26,7 +29,7 @@ async fn main() {
         tokio::select! {
             // (작업#1) 서버로부터 메시지 수신
             Some(message_received) = ws_stream.next() => {
-                if let Err(e) = handle_server_message(message_received).await {
+                if let Err(e) = handle_server_message(message_received, &mut user_id).await {
                     eprintln!("Error handling server message: {:?}", e);
                     break;
                 }
@@ -40,7 +43,7 @@ async fn main() {
             // (작업#3) Ctrl+C 처리
             _ = signal::ctrl_c() => {
                 // 서버로 종료 메시지 전송
-                let exit_message = message::create_message("user_exit", None);
+                let exit_message = message::create_text("user_exit", None);
                 if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
                     eprintln!("Failed to send exit message: {:?}", e);
                 }
@@ -113,9 +116,10 @@ where
 
 async fn handle_server_message(
     message_received: Result<Message, tokio_tungstenite::tungstenite::Error>,
+    user_id: &mut Option<String>,
 ) -> Result<(), ()> {
     match message_received {
-        Ok(Message::Text(message_json)) => handle_server_json_message(message_json),
+        Ok(Message::Text(message_json)) => handle_server_json_message(message_json, user_id),
         Ok(Message::Close(_)) => {
             println!("Server closed the connection");
             Err(())
@@ -146,7 +150,7 @@ where
     })
 }
 
-fn handle_server_json_message(message: String) -> Result<(), ()> {
+fn handle_server_json_message(message: String, user_id: &mut Option<String>) -> Result<(), ()> {
     let json: serde_json::Value = match serde_json::from_str(&message) {
         Ok(json) => json,
         Err(_) => {
@@ -156,6 +160,7 @@ fn handle_server_json_message(message: String) -> Result<(), ()> {
     };
 
     match json.get("type").and_then(|t| t.as_str()) {
+        Some("hello") => handle_server_user_hello(&json, user_id),
         Some("user_joined") => handle_server_user_join(&json),
         Some("user_left") => handle_server_user_left(&json),
         Some("chat") => handle_server_user_chat(&json),
@@ -181,6 +186,28 @@ fn handle_and_log_connection_error(e: Error) {
             eprintln!("Unexpected connection error: {:?}", e);
         }
     }
+}
+
+fn handle_server_user_hello(
+    json: &serde_json::Value,
+    user_id: &mut Option<String>,
+) -> Result<(), ()> {
+    match json.get("id").and_then(|v| v.as_str()) {
+        Some(id) => {
+            // `user_id`를 Some으로 설정
+            *user_id = Some(id.to_string());
+        }
+        None => {
+            eprintln!("Invalid message format. (JSON){:?}", json);
+            return Err(());
+        }
+    };
+
+    // TODO: ref 선언 확인 필요
+    if let Some(ref user_id_str) = user_id {
+        println!("Hello! (ID){}", user_id_str);
+    }
+    Ok(())
 }
 
 fn handle_server_user_join(json: &serde_json::Value) -> Result<(), ()> {

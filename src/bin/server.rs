@@ -1,5 +1,6 @@
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
+use project::common::message;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,6 +24,16 @@ type ClientMap = Arc<
     >,
 >;
 
+static mut NEXT_CLIENT_ID: u64 = 1;
+
+fn generate_client_id() -> u64 {
+    unsafe {
+        let id = NEXT_CLIENT_ID;
+        NEXT_CLIENT_ID += 1;
+        id
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // 서버 주소 설정 (localhost:8080)
@@ -35,9 +46,6 @@ async fn main() {
     // 모든 스레드에서 접근 및 수정이 가능해야 하기 때문에 스마트포인터(`Arc`) 사용
     let clients: ClientMap = Arc::new(RwLock::new(HashMap::new()));
 
-    // TODO: `id` 값을 특정 값으로 변경
-    let mut id = 0;
-
     // FIXME: ctrl+c 입력시 클라이언트들 대상으로 우아한 종료 시도
 
     // 클라이언트 연결 대기
@@ -46,13 +54,11 @@ async fn main() {
         let clients = Arc::clone(&clients);
 
         // 각 클라이언트마다 비동기적으로 처리
-        tokio::spawn(handle_connection(stream, id.to_string(), clients));
-
-        id += 1;
+        tokio::spawn(handle_connection(stream, clients));
     }
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, clients: ClientMap) {
+async fn handle_connection(stream: tokio::net::TcpStream, clients: ClientMap) {
     // WebSocket 핸드쉐이크 수행
     let ws_stream = accept_async(stream)
         .await
@@ -63,11 +69,24 @@ async fn handle_connection(stream: tokio::net::TcpStream, client_id: String, cli
     // WebSocket 스트림 분리
     let (write, mut read) = ws_stream.split();
 
+    // 클라이언트 ID 발급
+    let client_id = generate_client_id().to_string();
+
     // `write` 스트림을 클라이언트 목록에 추가
     insert_client_list(&clients, &client_id, write).await;
     println!("Client joined. (ID){}", client_id);
 
-    // 사용자 접속 알림
+    // 클라이언트에게 ID 전송
+    let hello_message = message::create_message(
+        "hello",
+        Some(serde_json::Map::from_iter(vec![(
+            "id".to_string(),
+            serde_json::json!(client_id),
+        )])),
+    );
+    unicast_message(&client_id, &clients, &hello_message.to_string()).await;
+
+    // 사용자 접속 알림(broadcast)
     notify_join(&client_id, &clients).await;
 
     while let Some(message) = read.next().await {
@@ -145,6 +164,22 @@ async fn broadcast_message(client_id: &str, clients: &ClientMap, message: &str) 
         }
         if let Err(e) = sender.send(Message::Text(message.to_string())).await {
             eprintln!("Error broadcasting message. (TO){}, (ERR){:?}", id, e);
+        }
+    }
+}
+
+async fn unicast_message(client_id: &str, clients: &ClientMap, message: &str) {
+    // 락 획득
+    // FIXME: write lock 밖에 사용하지 않는 것 같음
+    let mut clients_lock = clients.write().await;
+
+    // 자신을 제외한 클라이언트에게 브로드캐스트
+    for (id, sender) in clients_lock.iter_mut() {
+        if id != client_id {
+            continue;
+        }
+        if let Err(e) = sender.send(Message::Text(message.to_string())).await {
+            eprintln!("Error unicasting message. (TO){}, (ERR){:?}", id, e);
         }
     }
 }
