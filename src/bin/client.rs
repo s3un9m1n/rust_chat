@@ -43,7 +43,7 @@ async fn main() {
             // (작업#3) Ctrl+C 처리
             _ = signal::ctrl_c() => {
                 // 서버로 종료 메시지 전송
-                let exit_message = message::create_text("user_exit", None);
+                let exit_message = message::create_message("user_exit", None);
                 if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
                     eprintln!("Failed to send exit message: {:?}", e);
                 }

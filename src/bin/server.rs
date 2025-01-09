@@ -77,13 +77,11 @@ async fn handle_connection(stream: tokio::net::TcpStream, clients: ClientMap) {
     println!("Client joined. (ID){}", client_id);
 
     // 클라이언트에게 ID 전송
-    let hello_message = message::create_message(
-        "hello",
-        Some(serde_json::Map::from_iter(vec![(
-            "id".to_string(),
-            serde_json::json!(client_id),
-        )])),
-    );
+    let mut fields = serde_json::Map::new();
+    fields.insert("id".to_string(), serde_json::json!(client_id));
+    fields.insert("text".to_string(), serde_json::json!(format!("Hello {}!", client_id)));
+
+    let hello_message = message::create_message("hello", Some(&fields));
     unicast_message(&client_id, &clients, &hello_message.to_string()).await;
 
     // 사용자 접속 알림(broadcast)
