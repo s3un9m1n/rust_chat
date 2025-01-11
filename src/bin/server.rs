@@ -1,6 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
-use project::common::{message, protocol::MessageType};
-use serde_json::json;
+use project::server::message as server_message;
+use project::common::message as common_message;
+use project::common::protocol::MessageType;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -54,10 +55,7 @@ async fn handle_connection(stream: TcpStream, clients: ClientMap) {
 
     println!("Client joined: {}", client_id);
 
-    let hello_message = message::create_message(
-        &MessageType::Hello,
-        Some(&json!({ "id": client_id })),
-    );
+    let hello_message = server_message::create_hello_message(&client_id);
     unicast_message(&client_id, &clients, &hello_message).await;
 
     notify_join(&client_id, &clients).await;
@@ -90,19 +88,13 @@ async fn remove_client(clients: &ClientMap, client_id: &str) {
 
 /// 클라이언트 접속 알림
 async fn notify_join(client_id: &str, clients: &ClientMap) {
-    let join_message = message::create_message(
-        &MessageType::UserJoined,
-        Some(&json!({ "id": client_id })),
-    );
+    let join_message = server_message::create_hello_message(&client_id);
     broadcast_message(client_id, clients, &join_message).await;
 }
 
 /// 클라이언트 종료 알림
 async fn notify_leave(client_id: &str, clients: &ClientMap) {
-    let leave_message = message::create_message(
-        &MessageType::UserLeft,
-        Some(&json!({ "id": client_id })),
-    );
+    let leave_message = server_message::create_user_left_message(client_id);
     broadcast_message(client_id, clients, &leave_message).await;
 }
 
@@ -159,7 +151,7 @@ async fn process_json_message(
     clients: &ClientMap,
     message: &str,
 ) -> Result<(), ()> {
-    let json_message = message::parse_message(message).map_err(|_| {
+    let json_message = common_message::parse_message(message).map_err(|_| {
         eprintln!("Invalid JSON: {}", message);
     })?;
 
@@ -171,10 +163,7 @@ async fn process_json_message(
         Some(MessageType::Chat) => {
             if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
                 println!("Message from {}: {}", client_id, text);
-                let chat_message = message::create_message(
-                    &MessageType::Chat,
-                    Some(&json!({ "id": client_id, "text": text })),
-                );
+                let chat_message = common_message::create_chat_message(&client_id, &text);
                 broadcast_message(client_id, clients, &chat_message).await;
             }
             Ok(())

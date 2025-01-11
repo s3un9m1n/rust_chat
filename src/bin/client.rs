@@ -1,5 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
-use project::common::{message, protocol::MessageType};
+use project::client::message as client_message;
+use project::common::message as common_message;
+use project::common::protocol::MessageType;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::signal;
 use tokio::sync::mpsc;
@@ -41,7 +43,7 @@ async fn main() {
             }
             // (5) Ctrl+C 처리
             _ = signal::ctrl_c() => {
-                let exit_message = message::create_message(&MessageType::UserExit, None);
+                let exit_message = client_message::create_exit_message();
                 if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
                     eprintln!("Failed to send exit message: {:?}", e);
                 }
@@ -89,13 +91,10 @@ where
     }
 
     if message_input == "exit" {
-        let exit_message = message::create_message(&MessageType::UserExit, None);
+        let exit_message = client_message::create_exit_message();
         send_to_server(ws_stream, exit_message).await.expect("Failed to send exit message");
     } else {
-        let chat_message = message::create_message(
-            &MessageType::Chat,
-            Some(&serde_json::json!({ "text": message_input })),
-        );
+        let chat_message = client_message::create_chat_message(&message_input);
         send_to_server(ws_stream, chat_message).await.expect("Failed to send chat message");
         println!("Sent message: {}", message_input);
     }
@@ -140,7 +139,7 @@ where
 
 /// JSON 메시지를 파싱하여 서버 메시지 처리
 fn handle_server_json_message(message: String, user_id: &mut Option<String>) -> Result<(), ()> {
-    let json = message::parse_message(&message).map_err(|_| {
+    let json = common_message::parse_message(&message).map_err(|_| {
         eprintln!("Invalid message format: {}", message);
     })?;
 
