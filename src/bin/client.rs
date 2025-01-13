@@ -37,13 +37,13 @@ async fn main() {
             }
             // (4) 사용자 입력 처리
             Some(message_input) = rx.recv() => {
-                if handle_user_input(&mut ws_stream, message_input).await.is_err() {
+                if handle_user_input(&mut ws_stream, &message_input, user_id.as_ref().unwrap_or(&"".to_string())).await.is_err() {
                     break;
                 }
             }
             // (5) Ctrl+C 처리
             _ = signal::ctrl_c() => {
-                let exit_message = client_message::create_exit_message();
+                let exit_message = client_message::create_exit_message(user_id.as_deref().unwrap_or(""));
                 if let Err(e) = send_to_server(&mut ws_stream, exit_message).await {
                     eprintln!("Failed to send exit message: {:?}", e);
                 }
@@ -81,7 +81,8 @@ async fn read_user_input(tx: mpsc::Sender<String>) {
 /// 사용자 입력을 WebSocket 서버로 전송
 async fn handle_user_input<S>(
     ws_stream: &mut tokio_tungstenite::WebSocketStream<S>,
-    message_input: String,
+    message_input: &String,
+    user_id: &String,
 ) -> Result<(), ()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -91,11 +92,15 @@ where
     }
 
     if message_input == "exit" {
-        let exit_message = client_message::create_exit_message();
-        send_to_server(ws_stream, exit_message).await.expect("Failed to send exit message");
+        let exit_message = client_message::create_exit_message(user_id);
+        send_to_server(ws_stream, exit_message)
+            .await
+            .expect("Failed to send exit message");
     } else {
-        let chat_message = client_message::create_chat_message(&message_input);
-        send_to_server(ws_stream, chat_message).await.expect("Failed to send chat message");
+        let chat_message = common_message::create_chat_message(&message_input, user_id);
+        send_to_server(ws_stream, chat_message)
+            .await
+            .expect("Failed to send chat message");
         println!("Sent message: {}", message_input);
     }
     Ok(())
@@ -156,7 +161,10 @@ fn handle_server_json_message(message: String, user_id: &mut Option<String>) -> 
 }
 
 // 서버에서 받은 메시지 유형별 처리 함수들 (Hello, Join, Leave, Chat)
-fn handle_server_user_hello(json: &serde_json::Value, user_id: &mut Option<String>) -> Result<(), ()> {
+fn handle_server_user_hello(
+    json: &serde_json::Value,
+    user_id: &mut Option<String>,
+) -> Result<(), ()> {
     if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
         *user_id = Some(id.to_string());
         println!("Hello! Your ID is {}", id);

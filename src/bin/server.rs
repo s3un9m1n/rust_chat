@@ -1,16 +1,18 @@
 use futures_util::{SinkExt, StreamExt};
-use project::server::message as server_message;
 use project::common::message as common_message;
 use project::common::protocol::MessageType;
+use project::server::message as server_message;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-use tokio_tungstenite::{accept_async, WebSocketStream}; // 추가된 부분
 use tokio_tungstenite::tungstenite::{protocol::Message, Error};
+use tokio_tungstenite::{accept_async, WebSocketStream}; // 추가된 부분
 
 /// 클라이언트 ID와 메시지 전송 Sink를 관리하는 타입
-type ClientMap = Arc<RwLock<HashMap<String, futures_util::stream::SplitSink<WebSocketStream<TcpStream>, Message>>>>;
+type ClientMap = Arc<
+    RwLock<HashMap<String, futures_util::stream::SplitSink<WebSocketStream<TcpStream>, Message>>>,
+>;
 
 /// 전역으로 사용할 클라이언트 ID 생성기
 static mut NEXT_CLIENT_ID: u64 = 1;
@@ -98,14 +100,11 @@ async fn notify_leave(client_id: &str, clients: &ClientMap) {
     broadcast_message(client_id, clients, &leave_message).await;
 }
 
-async fn broadcast_message(
-    sender_id: &str,
-    clients: &ClientMap,
-    message: &str,
-) {
+async fn broadcast_message(sender_id: &str, clients: &ClientMap, message: &str) {
     let mut clients_lock = clients.write().await; // 수정 가능한 락을 획득
 
-    for (id, client) in clients_lock.iter_mut() { // iter_mut()를 사용
+    for (id, client) in clients_lock.iter_mut() {
+        // iter_mut()를 사용
         if id == sender_id {
             continue;
         }
@@ -115,14 +114,11 @@ async fn broadcast_message(
     }
 }
 
-async fn unicast_message(
-    client_id: &str,
-    clients: &ClientMap,
-    message: &str,
-) {
+async fn unicast_message(client_id: &str, clients: &ClientMap, message: &str) {
     let mut clients_lock = clients.write().await; // 수정 가능한 락을 획득
 
-    if let Some(client) = clients_lock.get_mut(client_id) { // get_mut()를 사용
+    if let Some(client) = clients_lock.get_mut(client_id) {
+        // get_mut()를 사용
         if let Err(e) = client.send(Message::Text(message.to_string())).await {
             eprintln!("Failed to send message to {}: {:?}", client_id, e);
         }
@@ -155,7 +151,12 @@ async fn process_json_message(
         eprintln!("Invalid JSON: {}", message);
     })?;
 
-    match MessageType::from_str(json_message.get("type").and_then(|t| t.as_str()).unwrap_or("")) {
+    match MessageType::from_str(
+        json_message
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or(""),
+    ) {
         Some(MessageType::UserExit) => {
             println!("Client {} disconnected", client_id);
             Err(())
