@@ -97,7 +97,7 @@ where
             .await
             .expect("Failed to send exit message");
     } else {
-        let chat_message = common_message::create_chat_message(&message_input, user_id);
+        let chat_message = client_message::create_chat_message(&message_input, user_id);
         send_to_server(ws_stream, chat_message)
             .await
             .expect("Failed to send chat message");

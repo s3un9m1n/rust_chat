@@ -164,7 +164,7 @@ async fn process_json_message(
         Some(MessageType::Chat) => {
             if let Some(text) = json_message.get("text").and_then(|t| t.as_str()) {
                 println!("Message from {}: {}", client_id, text);
-                let chat_message = common_message::create_chat_message(&client_id, &text);
+                let chat_message = server_message::create_chat_message(&client_id, &text);
                 broadcast_message(client_id, clients, &chat_message).await;
             }
             Ok(())
