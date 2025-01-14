@@ -1,5 +1,4 @@
 use crate::common::message;
-use crate::common::protocol::MessageType;
 
 pub fn handle_incoming_message(message: &str) {
     match message::parse_message(message) {
