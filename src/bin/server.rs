@@ -1,5 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
-use project::server::message;
+use tokio_tungstenite::accept_async;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
@@ -10,39 +11,88 @@ async fn main() {
 
     println!("Server listening on {}", addr);
 
-    let _clients: std::sync::Arc<
+    let clients: std::sync::Arc<
         tokio::sync::Mutex<
             std::collections::HashMap<
                 String,
-                tokio_tungstenite::WebSocketStream<
-                    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+                futures_util::stream::SplitSink<
+                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+                    tokio_tungstenite::tungstenite::protocol::Message,
                 >,
             >,
         >,
     > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(handle_client(stream));
+        let clients = clients.clone();
+        tokio::spawn(async move {
+            match accept_async(stream).await {
+                Ok(ws_stream) => {
+                    handle_client(ws_stream, clients).await;
+                }
+                Err(e) => {
+                    eprintln!("Failed to accept connection: {:?}", e);
+                }
+            }
+        });
     }
 }
 
-async fn handle_client(stream: tokio::net::TcpStream) {
-    let ws_stream = tokio_tungstenite::accept_async(stream)
-        .await
-        .expect("Failed to accept connection");
-    let (mut write, mut read) = ws_stream.split();
+async fn handle_client(
+    ws_stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    clients: std::sync::Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                futures_util::stream::SplitSink<
+                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+                    tokio_tungstenite::tungstenite::protocol::Message,
+                >,
+            >,
+        >,
+    >,
+) {
+    let client_id = Uuid::new_v4().to_string();
 
-    while let Some(Ok(msg)) = read.next().await {
-        if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = msg {
-            println!("Received: {}", text);
+    let (write, mut read) = ws_stream.split();
+    clients.lock().await.insert(client_id.clone(), write);
 
-            let response = message::create_chat_message("server", &text);
-            write
+    println!("Client connected: {}", client_id);
+
+    while let Some(Ok(message)) = read.next().await {
+        if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = message {
+            println!("Message received from {}: {}", client_id, text);
+            broadcast_message(&client_id, &text, &clients).await;
+        }
+    }
+
+    clients.lock().await.remove(&client_id);
+    println!("Client disconnected: {}", client_id);
+}
+
+async fn broadcast_message(
+    sender_id: &str,
+    message: &str,
+    clients: &std::sync::Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                futures_util::stream::SplitSink<
+                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+                    tokio_tungstenite::tungstenite::protocol::Message,
+                >,
+            >,
+        >,
+    >,
+) {
+    let mut clients = clients.lock().await;
+    for (id, write) in clients.iter_mut() {
+        if id != sender_id {
+            let _ = write
                 .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
-                    response,
+                    message.to_string(),
                 ))
-                .await
-                .expect("Failed to send message");
+                .await;
         }
     }
 }
