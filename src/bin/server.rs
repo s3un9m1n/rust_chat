@@ -59,6 +59,10 @@ async fn handle_client(
 
     println!("Client connected: {}", client_id);
 
+    // Broadcast client joined message
+    let join_message = format!("User {} has joined the chat", client_id);
+    broadcast_message(&"SERVER", &join_message, &clients).await;
+
     while let Some(Ok(message)) = read.next().await {
         if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = message {
             println!("Message received from {}: {}", client_id, text);
@@ -68,6 +72,10 @@ async fn handle_client(
 
     clients.lock().await.remove(&client_id);
     println!("Client disconnected: {}", client_id);
+
+    // Broadcast client left message
+    let leave_message = format!("User {} has left the chat", client_id);
+    broadcast_message(&"SERVER", &leave_message, &clients).await;
 }
 
 async fn broadcast_message(
