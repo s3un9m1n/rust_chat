@@ -1,13 +1,12 @@
 use futures_util::{SinkExt, StreamExt};
+use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
     let addr = "127.0.0.1:8080";
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("Failed to bind");
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind");
 
     println!("Server listening on {}", addr);
 
@@ -53,33 +52,41 @@ async fn handle_client(
     >,
 ) {
     let client_id = Uuid::new_v4().to_string();
-
     let (write, mut read) = ws_stream.split();
+
+    // Add the new client to the clients map
     clients.lock().await.insert(client_id.clone(), write);
 
     println!("Client connected: {}", client_id);
 
-    // Broadcast client joined message
-    let join_message = format!("User {} has joined the chat", client_id);
-    broadcast_message(&"SERVER", &join_message, &clients).await;
+    // Broadcast a join message
+    broadcast_message(
+        &format!("{{\"type\":\"join\",\"user\":\"{}\"}}", client_id),
+        &clients,
+    )
+    .await;
 
     while let Some(Ok(message)) = read.next().await {
         if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = message {
             println!("Message received from {}: {}", client_id, text);
-            broadcast_message(&client_id, &text, &clients).await;
+            broadcast_message(&text, &clients).await;
         }
     }
 
+    // Remove the client from the clients map
     clients.lock().await.remove(&client_id);
-    println!("Client disconnected: {}", client_id);
 
-    // Broadcast client left message
-    let leave_message = format!("User {} has left the chat", client_id);
-    broadcast_message(&"SERVER", &leave_message, &clients).await;
+    // Broadcast a leave message
+    broadcast_message(
+        &format!("{{\"type\":\"leave\",\"user\":\"{}\"}}", client_id),
+        &clients,
+    )
+    .await;
+
+    println!("Client disconnected: {}", client_id);
 }
 
 async fn broadcast_message(
-    sender_id: &str,
     message: &str,
     clients: &std::sync::Arc<
         tokio::sync::Mutex<
@@ -94,13 +101,11 @@ async fn broadcast_message(
     >,
 ) {
     let mut clients = clients.lock().await;
-    for (id, write) in clients.iter_mut() {
-        if id != sender_id {
-            let _ = write
-                .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
-                    message.to_string(),
-                ))
-                .await;
-        }
+    for (_, write) in clients.iter_mut() {
+        let _ = write
+            .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
+                message.to_string(),
+            ))
+            .await;
     }
 }
