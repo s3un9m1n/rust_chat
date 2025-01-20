@@ -1,14 +1,19 @@
 use futures_util::{SinkExt, StreamExt};
+use log::{error, info};
+use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
+    // Initialize logging
+    env_logger::init();
+
     let addr = "127.0.0.1:8080";
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
 
-    println!("Server listening on {}", addr);
+    info!("Server listening on {}", addr);
 
     let clients: std::sync::Arc<
         tokio::sync::Mutex<
@@ -30,7 +35,7 @@ async fn main() {
                     handle_client(ws_stream, clients).await;
                 }
                 Err(e) => {
-                    eprintln!("Failed to accept connection: {:?}", e);
+                    error!("Failed to accept connection: {:?}", e);
                 }
             }
         });
@@ -57,7 +62,7 @@ async fn handle_client(
     // Add the new client to the clients map
     clients.lock().await.insert(client_id.clone(), write);
 
-    println!("Client connected: {}", client_id);
+    info!("Client connected: {}", client_id);
 
     // Broadcast a join message
     broadcast_message(
@@ -68,8 +73,19 @@ async fn handle_client(
 
     while let Some(Ok(message)) = read.next().await {
         if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = message {
-            println!("Message received from {}: {}", client_id, text);
-            broadcast_message(&text, &clients).await;
+            match serde_json::from_str::<Value>(&text) {
+                Ok(json) => {
+                    if json.get("type").is_some() && json.get("message").is_some() {
+                        info!("Valid message from {}: {}", client_id, text);
+                        broadcast_message(&text, &clients).await;
+                    } else {
+                        error!("Invalid message format from {}: {}", client_id, text);
+                    }
+                }
+                Err(_) => {
+                    error!("Failed to parse message from {}: {}", client_id, text);
+                }
+            }
         }
     }
 
@@ -83,7 +99,7 @@ async fn handle_client(
     )
     .await;
 
-    println!("Client disconnected: {}", client_id);
+    info!("Client disconnected: {}", client_id);
 }
 
 async fn broadcast_message(
