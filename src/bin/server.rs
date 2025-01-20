@@ -1,5 +1,6 @@
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use log::{error, info};
+use rust_chat::broadcast_message;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
@@ -100,28 +101,4 @@ async fn handle_client(
     .await;
 
     info!("Client disconnected: {}", client_id);
-}
-
-async fn broadcast_message(
-    message: &str,
-    clients: &std::sync::Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                String,
-                futures_util::stream::SplitSink<
-                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-                    tokio_tungstenite::tungstenite::protocol::Message,
-                >,
-            >,
-        >,
-    >,
-) {
-    let mut clients = clients.lock().await;
-    for (_, write) in clients.iter_mut() {
-        let _ = write
-            .send(tokio_tungstenite::tungstenite::protocol::Message::Text(
-                message.to_string(),
-            ))
-            .await;
-    }
 }

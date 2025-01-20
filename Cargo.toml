@@ -15,6 +15,9 @@ uuid = { version = "1", features = ["v4"] }
 log = "0.4"
 env_logger = "0.10"
 
+[dev-dependencies]
+async-trait = "0.1.73"
+
 [[bin]]
 name = "server"
 path = "src/bin/server.rs"
@@ -23,6 +26,10 @@ path = "src/bin/server.rs"
 name = "client"
 path = "src/bin/client.rs"
 
+# [lib]
+# name = "project"       # 라이브러리 이름
+# path = "src/lib/mod.rs" # 라이브러리 진입점
+
 [lib]
-name = "project"       # 라이브러리 이름
-path = "src/lib/mod.rs" # 라이브러리 진입점
+name = "rust_chat"       # 라이브러리 이름
+path = "src/lib/lib.rs" # 라이브러리 진입점
