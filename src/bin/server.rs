@@ -1,104 +1,47 @@
 use futures_util::StreamExt;
-use log::{error, info};
-use rust_chat::broadcast_message;
-use serde_json::Value;
+use rust_chat::{broadcast_message, ClientsMap};
+use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tokio_tungstenite::accept_async;
-use uuid::Uuid;
+use tokio_tungstenite::tungstenite::protocol::Message;
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging
-    env_logger::init();
+    let clients: ClientsMap = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
-    let addr = "127.0.0.1:8080";
-    let listener = TcpListener::bind(addr).await.expect("Failed to bind");
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("Failed to bind server");
 
-    info!("Server listening on {}", addr);
-
-    let clients: std::sync::Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                String,
-                futures_util::stream::SplitSink<
-                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-                    tokio_tungstenite::tungstenite::protocol::Message,
-                >,
-            >,
-        >,
-    > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    println!("Server listening on 127.0.0.1:8080");
 
     while let Ok((stream, _)) = listener.accept().await {
         let clients = clients.clone();
         tokio::spawn(async move {
-            match accept_async(stream).await {
-                Ok(ws_stream) => {
-                    handle_client(ws_stream, clients).await;
+            if let Ok(ws_stream) = accept_async(stream).await {
+                let (write, mut read) = ws_stream.split();
+                let client_id = uuid::Uuid::new_v4().to_string();
+
+                clients.lock().await.insert(client_id.clone(), write);
+
+                broadcast_message(
+                    &format!("{{\"type\":\"join\",\"user\":\"{}\"}}", client_id),
+                    &clients,
+                )
+                .await;
+
+                while let Some(Ok(Message::Text(text))) = read.next().await {
+                    broadcast_message(&text, &clients).await;
                 }
-                Err(e) => {
-                    error!("Failed to accept connection: {:?}", e);
-                }
+
+                clients.lock().await.remove(&client_id);
+                broadcast_message(
+                    &format!("{{\"type\":\"leave\",\"user\":\"{}\"}}", client_id),
+                    &clients,
+                )
+                .await;
             }
         });
     }
-}
-
-async fn handle_client(
-    ws_stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-    clients: std::sync::Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                String,
-                futures_util::stream::SplitSink<
-                    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-                    tokio_tungstenite::tungstenite::protocol::Message,
-                >,
-            >,
-        >,
-    >,
-) {
-    let client_id = Uuid::new_v4().to_string();
-    let (write, mut read) = ws_stream.split();
-
-    // Add the new client to the clients map
-    clients.lock().await.insert(client_id.clone(), write);
-
-    info!("Client connected: {}", client_id);
-
-    // Broadcast a join message
-    broadcast_message(
-        &format!("{{\"type\":\"join\",\"user\":\"{}\"}}", client_id),
-        &clients,
-    )
-    .await;
-
-    while let Some(Ok(message)) = read.next().await {
-        if let tokio_tungstenite::tungstenite::protocol::Message::Text(text) = message {
-            match serde_json::from_str::<Value>(&text) {
-                Ok(json) => {
-                    if json.get("type").is_some() && json.get("message").is_some() {
-                        info!("Valid message from {}: {}", client_id, text);
-                        broadcast_message(&text, &clients).await;
-                    } else {
-                        error!("Invalid message format from {}: {}", client_id, text);
-                    }
-                }
-                Err(_) => {
-                    error!("Failed to parse message from {}: {}", client_id, text);
-                }
-            }
-        }
-    }
-
-    // Remove the client from the clients map
-    clients.lock().await.remove(&client_id);
-
-    // Broadcast a leave message
-    broadcast_message(
-        &format!("{{\"type\":\"leave\",\"user\":\"{}\"}}", client_id),
-        &clients,
-    )
-    .await;
-
-    info!("Client disconnected: {}", client_id);
 }

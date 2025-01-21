@@ -1,78 +1,47 @@
+use futures_util::StreamExt;
 use rust_chat::{broadcast_message, ClientsMap};
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::sync::Mutex;
-use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message; // 필요한 트레이트를 가져옵니다.
 
 #[tokio::test]
 async fn test_broadcast_message() {
-    // Mock 클라이언트 저장소
     let clients: ClientsMap = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
-    // Mock 클라이언트 추가
-    let mock_client = Arc::new(Mutex::new(Vec::new()));
-    clients.lock().await.insert(
-        "mock_client".to_string(),
-        Box::new(MockSink::new(mock_client.clone()))
-            as Box<
-                dyn futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error>
-                    + Send,
-            >,
-    );
+    // Mock 서버 및 클라이언트 연결 생성
+    let listener = TcpListener::bind("127.0.0.1:9001")
+        .await
+        .expect("Failed to bind test server");
 
-    // 브로드캐스트 메시지 테스트
+    let server_clients = clients.clone(); // Clone for server
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                let (write, _) = ws_stream.split();
+                server_clients
+                    .lock()
+                    .await
+                    .insert("mock_client".to_string(), write);
+            }
+        }
+    });
+
+    // 클라이언트 WebSocket 연결 생성
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9001")
+        .await
+        .unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // 테스트 메시지
     let test_message = "Test broadcast message";
     broadcast_message(test_message, &clients).await;
 
-    // Mock 클라이언트가 메시지를 받았는지 확인
-    let received_messages = mock_client.lock().await;
-    assert_eq!(received_messages.len(), 1);
-    assert_eq!(received_messages[0], test_message);
-}
-
-#[derive(Clone)]
-struct MockSink {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-impl MockSink {
-    fn new(messages: Arc<Mutex<Vec<String>>>) -> Self {
-        Self { messages }
-    }
-}
-
-#[async_trait::async_trait]
-impl futures_util::Sink<Message> for MockSink {
-    type Error = tokio_tungstenite::tungstenite::Error;
-
-    async fn send(&mut self, item: Message) -> Result<(), Self::Error> {
-        if let Message::Text(text) = item {
-            self.messages.lock().await.push(text);
-        }
-        Ok(())
-    }
-
-    fn poll_ready(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn start_send(self: std::pin::Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        futures::executor::block_on(self.get_mut().send(item))
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    // 클라이언트에서 메시지 수신 확인
+    if let Some(Ok(Message::Text(received_message))) = ws_stream.next().await {
+        assert_eq!(received_message, test_message);
+    } else {
+        panic!("No message received!");
     }
 }
