@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio_tungstenite::accept_async;
-use tokio_tungstenite::tungstenite::protocol::Message; // 필요한 트레이트를 가져옵니다.
+use tokio_tungstenite::tungstenite::protocol::Message;
 
 #[tokio::test]
 async fn test_broadcast_message() {
@@ -43,5 +43,51 @@ async fn test_broadcast_message() {
         assert_eq!(received_message, test_message);
     } else {
         panic!("No message received!");
+    }
+}
+
+#[tokio::test]
+async fn test_broadcast_message_between_two_clients() {
+    // Initialize shared clients map
+    let clients: ClientsMap = Arc::new(Mutex::new(std::collections::HashMap::new()));
+
+    // Start mock WebSocket server
+    let listener = TcpListener::bind("127.0.0.1:9002")
+        .await
+        .expect("Failed to bind test server");
+
+    let server_clients = clients.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                let (write, _) = ws_stream.split();
+                server_clients
+                    .lock()
+                    .await
+                    .insert("mock_client".to_string(), write);
+            }
+        }
+    });
+
+    // Connect two WebSocket clients
+    let (mut _client_a, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9002")
+        .await
+        .unwrap();
+    let (mut client_b, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9002")
+        .await
+        .unwrap();
+
+    // Wait for clients to connect
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Send a test message from client_a
+    let test_message = "Hello from client_a";
+    broadcast_message(test_message, &clients).await;
+
+    // Receive the message on client_b
+    if let Some(Ok(Message::Text(received_message))) = client_b.next().await {
+        assert_eq!(received_message, test_message);
+    } else {
+        panic!("Client B did not receive the broadcast message");
     }
 }
