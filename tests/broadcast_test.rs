@@ -91,3 +91,59 @@ async fn test_broadcast_message_between_two_clients() {
         panic!("Client B did not receive the broadcast message");
     }
 }
+
+#[tokio::test]
+async fn test_client_join_and_leave_broadcast() {
+    let clients: ClientsMap = Arc::new(Mutex::new(std::collections::HashMap::new()));
+
+    let listener = TcpListener::bind("127.0.0.1:9003")
+        .await
+        .expect("Failed to bind test server");
+
+    let server_clients = clients.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                let (write, _) = ws_stream.split();
+                server_clients
+                    .lock()
+                    .await
+                    .insert("mock_client".to_string(), write);
+            }
+        }
+    });
+
+    let (mut client_a, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9003")
+        .await
+        .unwrap();
+    let (mut client_b, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9003")
+        .await
+        .unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // "join" 메시지 수신 테스트
+    use tokio::time;
+    if let Ok(Some(Ok(Message::Text(received_message)))) =
+        time::timeout(tokio::time::Duration::from_secs(5), client_b.next()).await
+    {
+        println!("Client B received: {}", received_message); // 디버깅 로그
+        assert!(received_message.contains("\"type\":\"join\""));
+    } else {
+        panic!("Client B did not receive join broadcast within timeout");
+    }
+
+    // 클라이언트 A 종료
+    client_a.close(None).await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // "leave" 메시지 수신 테스트
+    if let Ok(Some(Ok(Message::Text(received_message)))) =
+        time::timeout(tokio::time::Duration::from_secs(5), client_b.next()).await
+    {
+        println!("Client B received: {}", received_message); // 디버깅 로그
+        assert!(received_message.contains("\"type\":\"leave\""));
+    } else {
+        panic!("Client B did not receive leave broadcast within timeout");
+    }
+}
