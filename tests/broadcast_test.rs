@@ -1,10 +1,11 @@
 use futures_util::StreamExt;
 use rust_chat::{broadcast_message, ClientsMap};
+use std::process::Stdio;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::process::Command;
 use tokio::sync::Mutex;
-use tokio_tungstenite::accept_async;
-use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::{accept_async, connect_async, tungstenite::protocol::Message};
 
 #[tokio::test]
 async fn test_broadcast_message() {
@@ -92,58 +93,70 @@ async fn test_broadcast_message_between_two_clients() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_client_join_and_leave_broadcast() {
-    let clients: ClientsMap = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    // Step 1: 서버 프로세스를 실행
+    let mut server_process = Command::new("cargo")
+        .arg("run")
+        .arg("--bin")
+        .arg("server")
+        .stderr(Stdio::piped()) // 오류를 무시하려면 None으로 설정 가능
+        .stdout(Stdio::piped()) // 출력 확인용
+        .spawn()
+        .expect("Failed to start server");
 
-    let listener = TcpListener::bind("127.0.0.1:9003")
+    // 잠시 대기하여 서버가 실행되도록 유도
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Step 2: 클라이언트 A 연결
+    let (mut client_a, _) = connect_async("ws://127.0.0.1:8080")
         .await
-        .expect("Failed to bind test server");
+        .expect("Client A connection failed");
+    println!("Client A connected!");
 
-    let server_clients = clients.clone();
-    tokio::spawn(async move {
-        while let Ok((stream, _)) = listener.accept().await {
-            if let Ok(ws_stream) = accept_async(stream).await {
-                let (write, _) = ws_stream.split();
-                server_clients
-                    .lock()
-                    .await
-                    .insert("mock_client".to_string(), write);
-            }
-        }
-    });
-
-    let (mut client_a, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9003")
+    // Step 3: 클라이언트 B 연결
+    let (mut client_b, _) = connect_async("ws://127.0.0.1:8080")
         .await
-        .unwrap();
-    let (mut client_b, _) = tokio_tungstenite::connect_async("ws://127.0.0.1:9003")
-        .await
-        .unwrap();
+        .expect("Client B connection failed");
+    println!("Client B connected!");
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // "join" 메시지 수신 테스트
-    use tokio::time;
-    if let Ok(Some(Ok(Message::Text(received_message)))) =
-        time::timeout(tokio::time::Duration::from_secs(5), client_b.next()).await
+    // Step 4: "join" 메시지 수신 테스트
+    println!("Waiting for join message...");
+    if let Some(Ok(Message::Text(received_message))) =
+        tokio::time::timeout(tokio::time::Duration::from_secs(5), client_b.next())
+            .await
+            .unwrap()
     {
-        println!("Client B received: {}", received_message); // 디버깅 로그
+        println!("Received message: {}", received_message);
         assert!(received_message.contains("\"type\":\"join\""));
     } else {
-        panic!("Client B did not receive join broadcast within timeout");
+        panic!("Client B did not receive join broadcast");
     }
 
-    // 클라이언트 A 종료
-    client_a.close(None).await.unwrap();
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Step 5: 클라이언트 A 종료
+    client_a
+        .close(None)
+        .await
+        .expect("Client A disconnect failed");
+    println!("Client A disconnected");
 
-    // "leave" 메시지 수신 테스트
-    if let Ok(Some(Ok(Message::Text(received_message)))) =
-        time::timeout(tokio::time::Duration::from_secs(5), client_b.next()).await
+    // Step 6: "leave" 메시지 수신 테스트
+    println!("Waiting for leave message...");
+    if let Some(Ok(Message::Text(received_message))) =
+        tokio::time::timeout(tokio::time::Duration::from_secs(5), client_b.next())
+            .await
+            .unwrap()
     {
-        println!("Client B received: {}", received_message); // 디버깅 로그
+        println!("Received message: {}", received_message);
         assert!(received_message.contains("\"type\":\"leave\""));
     } else {
-        panic!("Client B did not receive leave broadcast within timeout");
+        panic!("Client B did not receive leave broadcast");
     }
+
+    // Step 7: 서버 종료
+    server_process
+        .kill()
+        .await
+        .expect("Failed to kill server process");
+    println!("Server process terminated.");
 }
